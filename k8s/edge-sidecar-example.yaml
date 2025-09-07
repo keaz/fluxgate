@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-microservice
+  namespace: fluxgate
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-microservice
+  template:
+    metadata:
+      labels:
+        app: my-microservice
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/your-org/my-microservice:1.0.0
+          ports:
+            - containerPort: 8080
+        - name: edge
+          image: ghcr.io/your-org/fluxgate-edge:1.0.0
+          env:
+            - name: EDGE_BACKEND_GRPC
+              value: "http://fluxgate-backend.fluxgate.svc.cluster.local:50051"
+            - name: EDGE_HTTP_ADDR
+              value: "0.0.0.0:8081"
+            - name: EDGE_CLIENT_ID
+              value: "{{CLIENT_ID_UUID}}"
+            - name: EDGE_CLIENT_SECRET
+              value: "{{CLIENT_API_KEY}}"
+            - name: EDGE_ASSIGNMENT_FLUSH_SECS
+              value: "10"
+            - name: EDGE_EVALUATION_FLUSH_SECS
+              value: "30"
+          ports:
+            - containerPort: 8081

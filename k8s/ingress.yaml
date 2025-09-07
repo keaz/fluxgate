@@ -1,0 +1,40 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fluxgate
+  namespace: fluxgate
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: fluxgate.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fluxgate-ui
+                port:
+                  number: 80
+    - host: api.fluxgate.example.com
+      http:
+        paths:
+          - path: /graphql
+            pathType: Prefix
+            backend:
+              service:
+                name: fluxgate-backend
+                port:
+                  number: 8080
+    # This is for the UI to call the backend edge service
+    - host: edge.fluxgate.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fluxgate-edge
+                port:
+                  number: 8081

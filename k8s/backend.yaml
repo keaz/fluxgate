@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxgate-backend
+  namespace: fluxgate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: fluxgate-backend }
+  template:
+    metadata:
+      labels: { app: fluxgate-backend }
+    spec:
+      containers:
+        - name: backend
+          image: keaz/flux-gate-backend:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fluxgate-db
+                  key: DATABASE_URL
+          ports:
+            - containerPort: 8080 # HTTP GraphQL
+            - containerPort: 50051 # gRPC
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxgate-backend
+  namespace: fluxgate
+spec:
+  selector: { app: fluxgate-backend }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: grpc
+      port: 50051
+      targetPort: 50051

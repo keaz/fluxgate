@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxgate-edge
+  namespace: fluxgate
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: fluxgate-edge }
+  template:
+    metadata:
+      labels: { app: fluxgate-edge }
+    spec:
+      containers:
+        - name: edge
+          image: ghcr.io/your-org/fluxgate-edge:1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: EDGE_BACKEND_GRPC
+              value: "http://fluxgate-backend.fluxgate.svc.cluster.local:50051"
+            - name: EDGE_HTTP_ADDR
+              value: "0.0.0.0:8081"
+            - name: EDGE_CLIENT_ID
+              value: "{{CLIENT_ID_UUID}}"
+            - name: EDGE_CLIENT_SECRET
+              value: "{{CLIENT_API_KEY}}"
+            - name: EDGE_ASSIGNMENT_FLUSH_SECS
+              value: "10"
+            - name: EDGE_EVALUATION_FLUSH_SECS
+              value: "30"
+          ports:
+            - containerPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxgate-edge
+  namespace: fluxgate
+spec:
+  selector: { app: fluxgate-edge }
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

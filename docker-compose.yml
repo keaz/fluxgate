@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  backend:
+    image: keaz/flux-gate-backend:latest
+    environment:
+      - DATABASE_URL=postgres://postgres:local123@localhost:5432/feature_toggle
+    ports:
+      - "8080:8080" # GraphQL
+    depends_on:
+      - postgres
+  ui:
+    image: keaz/flux-gate-ui:latest
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8080
+      - BACKEND_PROTOCOL=http
+      - WS_PROTOCOL=ws
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=local123
+      - POSTGRES_DB=feature_toggle
+    ports:
+      - "5433:5432"

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxgate-ui
+  namespace: fluxgate
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: fluxgate-ui }
+  template:
+    metadata:
+      labels: { app: fluxgate-ui }
+    spec:
+      containers:
+        - name: ui
+          image: keaz/flux-gate-ui:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BACKEND_HOST
+              value: fluxgate-backend.fluxgate.svc.cluster.local
+            - name: BACKEND_PORT
+              value: "8080"
+            - name: BACKEND_PROTOCOL
+              value: http
+            - name: WS_PROTOCOL
+              value: ws
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluxgate-ui
+  namespace: fluxgate
+spec:
+  selector: { app: fluxgate-ui }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
