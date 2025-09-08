@@ -24,6 +24,14 @@ spec:
           ports:
             - containerPort: 8080 # HTTP GraphQL
             - containerPort: 50051 # gRPC
+          volumeMounts:
+            - name: config-toml
+              mountPath: /app/config/config.toml
+              subPath: config.toml
+      volumes:
+        - name: config-toml
+          configMap:
+            name: fluxgate-backend-config
 ---
 apiVersion: v1
 kind: Service

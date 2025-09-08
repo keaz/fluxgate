@@ -17,9 +17,9 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: BACKEND_HOST
-              value: fluxgate-backend.fluxgate.svc.cluster.local
+              value: api.fluxgate.example.com
             - name: BACKEND_PORT
-              value: "8080"
+              value: "80"
             - name: BACKEND_PROTOCOL
               value: http
             - name: WS_PROTOCOL
