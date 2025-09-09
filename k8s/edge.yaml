@@ -13,11 +13,11 @@ spec:
     spec:
       containers:
         - name: edge
-          image: ghcr.io/your-org/fluxgate-edge:1.0.0
+          image: keaz/flux-gate-edge:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: EDGE_BACKEND_GRPC
-              value: "http://fluxgate-backend.fluxgate.svc.cluster.local:50051"
+              value: "http://fluxgate-backend:50051"
             - name: EDGE_HTTP_ADDR
               value: "0.0.0.0:8081"
             - name: EDGE_CLIENT_ID
