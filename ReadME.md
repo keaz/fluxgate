@@ -1,4 +1,6 @@
-# FluxGate — Feature Flag Delivery Platform
+# FluxGate — Feature Flag Delivery Platform ![FluxGate Logo](./favicon.svg)
+
+> **Important Note:** FluxGate is currently in **beta**. APIs, configuration, and deployment details may change. 
 
 A modern feature toggle management system for controlled rollouts, safe experimentation, and progressive delivery.
 
