@@ -1,9 +1,10 @@
 version: '3.8'
 services:
   backend:
-    image: keaz/flux-gate-backend:latest
+    image: keaz/flux-gate-backend:latest-arm64
     environment:
-      - DATABASE_URL=postgres://postgres:local123@localhost:5432/feature_toggle
+      - DATABASE_URL=postgres://postgres:local123@postgres:5432/feature_toggle
+      - RUST_LOG=debug
     ports:
       - "8080:8080" # GraphQL
     depends_on:

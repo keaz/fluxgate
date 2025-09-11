@@ -13,8 +13,8 @@ spec:
     spec:
       containers:
         - name: edge
-          image: keaz/flux-gate-edge:latest
-          imagePullPolicy: IfNotPresent
+          image: keaz/flux-gate-edge:v.0.0.2-alpha-arm64
+          imagePullPolicy: Always
           env:
             - name: EDGE_BACKEND_GRPC
               value: "http://fluxgate-backend:50051"

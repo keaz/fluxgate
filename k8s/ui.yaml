@@ -14,7 +14,7 @@ spec:
       containers:
         - name: ui
           image: keaz/flux-gate-ui:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: BACKEND_HOST
               value: api.fluxgate.example.com
