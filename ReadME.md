@@ -395,6 +395,28 @@ Security notes (prod):
 - Edge HTTP: /evaluate, /health; docs at /docs
 - UI: port 80 (container), typically published via Ingress or host 3000 for local
 
+### Feature Evaluation
+
+```curl
+curl --location 'http://localhost:8081/evaluate' \
+--header 'Content-Type: application/json' \
+--data '{
+  "feature_key" :"BetaUsers",
+  "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
+  "context": [
+    {
+        "key":"userId",
+        "value":"15"
+    },
+    {
+        "key": "role",
+        "value":"admin"
+    }
+
+  ]
+}'
+```
+
 
 ## 9) Local development commands (reference)
 
