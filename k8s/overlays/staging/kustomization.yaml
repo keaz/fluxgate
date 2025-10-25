@@ -1,0 +1,111 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fluxgate
+
+resources:
+  - ../../base
+
+namePrefix: staging-
+
+labels:
+  - pairs:
+      environment: staging
+
+patches:
+  # Moderate replicas for staging environment
+  - target:
+      kind: Deployment
+      name: fluxgate-backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  - target:
+      kind: Deployment
+      name: fluxgate-edge
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  - target:
+      kind: Deployment
+      name: fluxgate-ui
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # Use specific version tags for staging
+  - target:
+      kind: Deployment
+      name: fluxgate-backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: keaz/flux-gate-backend:v0.0.8-alpha
+
+  - target:
+      kind: Deployment
+      name: fluxgate-edge
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: keaz/flux-gate-edge:v0.0.8-alpha
+
+  # Add resource limits for staging
+  - target:
+      kind: Deployment
+      name: fluxgate-backend
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+  - target:
+      kind: Deployment
+      name: fluxgate-edge
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+
+  # Update ConfigMap for staging environment
+  - target:
+      kind: ConfigMap
+      name: fluxgate-backend-config
+    patch: |-
+      - op: replace
+        path: /data/config.toml
+        value: |
+          # CORS allowed origin for the frontend
+          allowed_origin = "https://staging.fluxgate.example.com"
+
+          # Address that the Actix-Web HTTP server binds to
+          http_addr = "0.0.0.0:8080"
+
+          # Address that the gRPC server binds to
+          grpc_addr = "0.0.0.0:50051"
+
+  # Update Secret for staging environment (use external secret management in real scenarios)
+  - target:
+      kind: Secret
+      name: fluxgate-db
+    patch: |-
+      - op: replace
+        path: /stringData/DATABASE_URL
+        value: "postgres://postgres:CHANGE_ME@postgres-staging.example.com:5432/feature_toggle_staging"

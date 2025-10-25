@@ -6,10 +6,12 @@ metadata:
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: fluxgate-backend }
+    matchLabels:
+      app: fluxgate-backend
   template:
     metadata:
-      labels: { app: fluxgate-backend }
+      labels:
+        app: fluxgate-backend
     spec:
       containers:
         - name: backend
@@ -32,18 +34,3 @@ spec:
         - name: config-toml
           configMap:
             name: fluxgate-backend-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: fluxgate-backend
-  namespace: fluxgate
-spec:
-  selector: { app: fluxgate-backend }
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-    - name: grpc
-      port: 50051
-      targetPort: 50051

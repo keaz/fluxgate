@@ -36,7 +36,6 @@ spec:
                 name: fluxgate-backend
                 port:
                   number: 8080
-    # This is for the UI to call the backend edge service
     - host: edge.fluxgate.example.com
       http:
         paths:
