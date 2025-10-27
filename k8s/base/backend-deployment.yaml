@@ -4,7 +4,7 @@ metadata:
   name: fluxgate-backend
   namespace: fluxgate
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: fluxgate-backend
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: keaz/flux-gate-backend:v0.0.8-alpha
+          image: keaz/flux-gate-backend:v0.0.9-alpha-arm64
           imagePullPolicy: Always
           env:
             - name: DATABASE_URL
@@ -23,13 +23,37 @@ spec:
                 secretKeyRef:
                   name: fluxgate-db
                   key: DATABASE_URL
+            # Pod identification for multi-instance logging
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - containerPort: 8080 # HTTP GraphQL
             - containerPort: 50051 # gRPC
+            - containerPort: 6000 # Cluster replication
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "2000m"
           volumeMounts:
             - name: config-toml
               mountPath: /app/config/config.toml
               subPath: config.toml
+            - name: config-toml
+              mountPath: /app/log4rs.yaml
+              subPath: log4rs.yaml
       volumes:
         - name: config-toml
           configMap:

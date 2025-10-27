@@ -13,3 +13,6 @@ spec:
     - name: grpc
       port: 50051
       targetPort: 50051
+    - name: cluster
+      port: 6000
+      targetPort: 6000

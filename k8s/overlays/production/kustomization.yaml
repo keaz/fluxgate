@@ -28,7 +28,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/replicas
-        value: 5
+        value: 1
 
   - target:
       kind: Deployment
@@ -45,7 +45,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-backend:v0.0.8-alpha
+        value: keaz/flux-gate-backend:v0.0.9-alpha-arm64 
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
@@ -56,7 +56,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-edge:v0.0.8-alpha
+        value: keaz/flux-gate-edge:v0.0.9-alpha-arm64 
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
@@ -164,7 +164,7 @@ patches:
         value:
           prometheus.io/scrape: "true"
 
-  # Update ConfigMap for production environment
+  # Update backend ConfigMap for production environment with cluster enabled
   - target:
       kind: ConfigMap
       name: fluxgate-backend-config
@@ -172,6 +172,8 @@ patches:
       - op: replace
         path: /data/config.toml
         value: |
+          # Feature Toggle Backend configuration
+
           # CORS allowed origin for the frontend
           allowed_origin = "https://fluxgate.example.com"
 
@@ -180,6 +182,64 @@ patches:
 
           # Address that the gRPC server binds to
           grpc_addr = "0.0.0.0:50051"
+
+          # JWT secret for token signing and verification
+          # IMPORTANT: Use external secret management (Sealed Secrets, Vault, etc.)
+          jwt_secret = "CHANGE_ME_PRODUCTION_JWT_SECRET_MINIMUM_32_CHARACTERS_LONG"
+
+          # Cluster replication enabled for production
+          [cluster]
+          enabled = true
+          listen_addr = "0.0.0.0:6000"
+          reconnect_delay_ms = 2000
+
+          [cluster.discovery]
+          heartbeat_interval_secs = 30
+          stale_threshold_secs = 90
+          cleanup_interval_secs = 60
+
+  # Update edge ConfigMap for production environment
+  - target:
+      kind: ConfigMap
+      name: fluxgate-edge-config
+    patch: |-
+      - op: replace
+        path: /data/config.toml
+        value: |
+          # Edge Server Configuration
+
+          # Backend gRPC server address
+          backend_grpc = "http://prod-fluxgate-backend:50051"
+
+          # HTTP server bind address
+          http_addr = "0.0.0.0:8081"
+
+          # Client credentials for backend authentication
+          # IMPORTANT: Use external secret management (Sealed Secrets, Vault, etc.)
+          client_id = "CHANGE_ME_PRODUCTION_CLIENT_ID"
+          client_secret = "CHANGE_ME_PRODUCTION_CLIENT_SECRET"
+
+          # gRPC connection settings
+          [grpc]
+          connect_timeout_secs = 5
+          timeout_secs = 10
+          tcp_keepalive_secs = 30
+          http2_keepalive_secs = 20
+          keep_alive_while_idle = true
+          concurrency_limit = 256
+          tcp_nodelay = true
+
+          # Flush settings
+          [flush]
+          assignment_flush_secs = 10
+          evaluation_flush_secs = 30
+
+          # Retry settings
+          [retry]
+          base_delay_ms = 500
+          max_attempts = 3
+          stream_initial_delay_secs = 1
+          stream_max_delay_secs = 30
 
   # Update Secret for production environment
   # NOTE: In production, use external secret management (e.g., Sealed Secrets, External Secrets Operator, Vault)

@@ -4,7 +4,7 @@ metadata:
   name: fluxgate-edge
   namespace: fluxgate
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: fluxgate-edge
@@ -15,20 +15,25 @@ spec:
     spec:
       containers:
         - name: edge
-          image: keaz/flux-gate-edge:v0.0.8-alpha
+          image: keaz/flux-gate-edge:v0.0.9-alpha-arm64
           imagePullPolicy: Always
           env:
-            - name: EDGE_BACKEND_GRPC
-              value: "http://fluxgate-backend:50051"
-            - name: EDGE_HTTP_ADDR
-              value: "0.0.0.0:8081"
-            - name: EDGE_CLIENT_ID
-              value: "{{CLIENT_ID_UUID}}"
-            - name: EDGE_CLIENT_SECRET
-              value: "{{CLIENT_API_KEY}}"
-            - name: EDGE_ASSIGNMENT_FLUSH_SECS
-              value: "10"
-            - name: EDGE_EVALUATION_FLUSH_SECS
-              value: "30"
+            - name: EDGE_CONFIG_FILE
+              value: "/app/config/config.toml"
           ports:
             - containerPort: 8081
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: config-toml
+              mountPath: /app/config/config.toml
+              subPath: config.toml
+      volumes:
+        - name: config-toml
+          configMap:
+            name: fluxgate-edge-config

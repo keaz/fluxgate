@@ -20,7 +20,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/replicas
-        value: 1
+        value: 2
 
   - target:
       kind: Deployment
@@ -45,7 +45,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-backend:v0.0.8-alpha
+        value: keaz/flux-gate-backend:v0.0.9-alpha-arm64
 
   - target:
       kind: Deployment
@@ -53,9 +53,9 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-edge:v0.0.8-alpha
+        value: keaz/flux-gate-edge:v0.0.9-alpha-arm64
 
-  # Update ConfigMap for dev environment
+  # Update backend ConfigMap for dev environment
   - target:
       kind: ConfigMap
       name: fluxgate-backend-config
@@ -63,6 +63,8 @@ patches:
       - op: replace
         path: /data/config.toml
         value: |
+          # Feature Toggle Backend configuration
+
           # CORS allowed origin for the frontend
           allowed_origin = "http://fluxgate.example.com"
 
@@ -71,6 +73,62 @@ patches:
 
           # Address that the gRPC server binds to
           grpc_addr = "0.0.0.0:50051"
+
+          # JWT secret for token signing and verification
+          jwt_secret = "dev_jwt_secret_minimum_32_characters_long_for_development"
+
+          [cluster]
+          enabled = true
+          listen_addr = "0.0.0.0:6000"
+          reconnect_delay_ms = 2000
+
+          # Database-backed peer discovery configuration
+          [cluster.discovery]
+          heartbeat_interval_secs = 30
+          stale_threshold_secs = 90
+          cleanup_interval_secs = 60
+
+  # Update edge ConfigMap for dev environment
+  - target:
+      kind: ConfigMap
+      name: fluxgate-edge-config
+    patch: |-
+      - op: replace
+        path: /data/config.toml
+        value: |
+          # Edge Server Configuration
+
+          # Backend gRPC server address
+          backend_grpc = "http://dev-fluxgate-backend:50051"
+
+          # HTTP server bind address
+          http_addr = "0.0.0.0:8081"
+
+          # Client credentials for backend authentication
+          client_id = "a1b2c3d4-0000-4000-8000-000000000001"
+          client_secret = "TEST_WEB_KEY_1"
+
+          # gRPC connection settings
+          [grpc]
+          connect_timeout_secs = 5
+          timeout_secs = 10
+          tcp_keepalive_secs = 30
+          http2_keepalive_secs = 20
+          keep_alive_while_idle = true
+          concurrency_limit = 256
+          tcp_nodelay = true
+
+          # Flush settings
+          [flush]
+          assignment_flush_secs = 10
+          evaluation_flush_secs = 30
+
+          # Retry settings
+          [retry]
+          base_delay_ms = 500
+          max_attempts = 3
+          stream_initial_delay_secs = 1
+          stream_max_delay_secs = 30
 
   # Update Secret for dev environment
   - target:

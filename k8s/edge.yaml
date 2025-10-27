@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
         - name: edge
-          image: keaz/flux-gate-edge:v0.0.8-alpha
+          image: keaz/flux-gate-edge:v0.0.9-alpha-arm64
           imagePullPolicy: Always
           env:
             - name: EDGE_BACKEND_GRPC

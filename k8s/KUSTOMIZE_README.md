@@ -120,7 +120,7 @@ kubectl get pods -n fluxgate -l environment=dev
 
 **Characteristics:**
 - **Replicas**: 2 for all services
-- **Images**: Versioned tags (e.g., `v0.0.8-alpha`)
+- **Images**: Versioned tags (e.g., `v0.0.9-alpha-arm64 `)
 - **Database**: Staging database
 - **Name Prefix**: `staging-`
 - **Resource Limits**: Moderate (256-512Mi memory, 100-500m CPU)
