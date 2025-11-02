@@ -5,16 +5,29 @@ metadata:
   namespace: fluxgate
   annotations:
     kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     # WebSocket support for GraphQL subscriptions
     nginx.ingress.kubernetes.io/websocket-services: "fluxgate-backend"
+    # Ensure HTTP/1.1 for WebSocket upgrade
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    # Extended timeouts for long-lived WebSocket connections
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    # WebSocket upgrade headers
     nginx.ingress.kubernetes.io/configuration-snippet: |
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - fluxgate.example.com
+        - api.fluxgate.example.com
+        - edge.fluxgate.example.com
+      secretName: fluxgate-tls
   rules:
     - host: fluxgate.example.com
       http:

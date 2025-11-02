@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: edge
-          image: keaz/flux-gate-edge:v0.0.9-alpha-arm64
+          image: keaz/flux-gate-edge:v0.0.10-alpha-arm64
           imagePullPolicy: Always
           env:
             - name: EDGE_CONFIG_FILE

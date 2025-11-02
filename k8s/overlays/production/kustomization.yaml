@@ -37,6 +37,18 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
+      # Configure HTTPS and WSS for production
+      - op: replace
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: BACKEND_HOST
+            value: api.fluxgate.example.com
+          - name: BACKEND_PORT
+            value: "443"
+          - name: BACKEND_PROTOCOL
+            value: https
+          - name: WS_PROTOCOL
+            value: wss
 
   # Use specific stable version tags for production
   - target:

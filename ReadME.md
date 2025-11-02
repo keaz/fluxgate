@@ -1,6 +1,6 @@
 # FluxGate — Feature Flag Delivery Platform ![FluxGate Logo](./favicon.svg)
 
-> **Important Note:** FluxGate is currently in **beta**. APIs, configuration, and deployment details may change. 
+> **Important Note:** FluxGate is currently in **beta**. APIs, configuration, and deployment details may change.
 
 A modern feature toggle management system for controlled rollouts, safe experimentation, and progressive delivery.
 
@@ -9,6 +9,30 @@ A modern feature toggle management system for controlled rollouts, safe experime
 - [Backend](https://hub.docker.com/r/keaz/flux-gate-backend): Rust (Actix-Web + async-graphql + tonic + sqlx + Postgres)
 - [Edge](https://hub.docker.com/r/keaz/flux-gate-edge): Rust (Actix HTTP + tonic gRPC client, in-memory cache, analytics flushing)
 - [UI](https://hub.docker.com/r/keaz/flux-gate-ui): React (Vite, Apollo Client, Tailwind)
+
+## 🚀 What's New
+
+### Emergency Kill Switch with Auto-Rollback
+Production incident? One click to safety. Instantly disable problematic features across all environments with automatic rollback scheduling (5-60 minutes). Includes centralized monitoring dashboard with countdown timers and complete audit trail.
+
+### Real-Time Analytics Dashboard
+See what's happening NOW, not what happened yesterday. Live metrics updated every 30 seconds via GraphQL subscriptions, with time-series visualization, flexible aggregation (1-60 minute intervals), and performance-optimized PostgreSQL queries.
+
+### Modern Material Dashboard UI
+Professional, polished interface matching Material Dashboard's design language with gradient buttons, elevated cards, comprehensive chart library (Line, Area, Bar, Pie, Donut), and sophisticated shadow hierarchy.
+
+### Cluster Improvements
+Enhanced gRPC streaming with proper feature update propagation across cluster nodes, ensuring edge server caches stay synchronized in multi-node deployments.
+
+### Technical Achievements
+- **280+ Unit Tests**: Comprehensive test coverage across backend, edge, and evaluation engine
+- **Kill Switch Logic Fix**: Corrected inverted boolean semantics throughout the codebase with full test validation
+- **Cluster Replication**: Fixed gRPC subscribe-all mode for proper update propagation
+- **Performance**: PostgreSQL time-bucketed aggregation with concurrent queries for dashboard metrics
+- **Type Safety**: Full TypeScript implementation in UI with React 19 and Tailwind CSS 4
+- **Multi-Platform**: Docker images for amd64 and arm64 architectures
+
+📹 **Demo Videos & Screenshots**: Check out the [media/](./media/) folder for system demonstrations and UI screenshots.
 
 
 ## 1) What FluxGate is
@@ -32,14 +56,30 @@ Big picture:
   - Contexts and stage criteria with rollout percentages (bucketing)
 - Evaluation engine
   - Deterministic bucketing by sticky key, criteria checks, dependency gating
+  - Kill switch integration for emergency feature disable
   - Used by both backend (for gRPC Evaluate) and edge server
 - Delivery topology
   - Backend broadcasts feature updates via a shared tokio broadcast channel
   - Edge opens a long-lived gRPC stream to receive initial snapshot and incremental UPSERT/DELETE updates
   - Edge maintains an in-memory key/id cache for fast evaluations
-- Analytics
+  - Multi-node cluster support with synchronized update propagation
+- Emergency controls
+  - **Kill Switch**: One-click emergency disable/enable for any feature
+  - **Auto-Rollback**: Schedule automatic re-enablement (5-60 minutes)
+  - **Kill Switch Monitor**: Dashboard view of all disabled features with countdown timers
+  - Complete audit trail with timestamps and user tracking
+- Real-time analytics
+  - **GraphQL Subscriptions**: Live metrics updated every 30 seconds
+  - **Time-Series Data**: 24-hour evaluation tracking with configurable intervals (1-60 minutes)
+  - **Dashboard Metrics**: Evaluation rates, success rates, cache hit rates
+  - **Flexible Filtering**: By feature, environment, or client
   - Edge records evaluation events locally and flushes in batches to backend via gRPC
   - Backend persists events for dashboards and time-series analysis
+- Modern UI/UX
+  - **Material Dashboard Design**: Professional Material Design theme
+  - **Chart Library**: 5 chart types (Line, Area, Bar, Pie, Donut) powered by Recharts
+  - **Responsive Design**: Mobile-friendly with gradient buttons and elevated cards
+  - **Real-time Updates**: WebSocket subscriptions with auto-reconnection
 - Security & auth
   - JWT-based user auth for GraphQL
   - Role-Based Access Control for deployment workflows (Requester, Approver, Team Admin)
@@ -69,6 +109,67 @@ Data flow:
 - Edge ↔ Backend gRPC for streaming feature data, evaluation, and analytics
 - Backend ↔ Postgres for durable storage, migrations, and analytics persistence
 
+
+## 3.1) SDKs and integrations
+
+FluxGate provides native SDKs for easy integration with your applications:
+
+### Spring Boot Starter (Java)
+**Location**: `fluxgate-spring/fluxgate-spring-boot-starter/`
+
+A production-ready Spring Boot starter for integrating Java applications with FluxGate Edge Server:
+
+**Features**:
+- **Auto-Configuration**: Zero-config setup with Spring Boot conventions
+- **FluxGateClient Interface**: Simple, type-safe feature evaluation API
+- **Retry Logic**: Built-in resilience with exponential backoff
+- **Health Checks**: Spring Boot Actuator integration
+- **Metrics**: Micrometer-based metrics for monitoring
+- **Async Support**: Non-blocking evaluation with CompletableFuture
+- **Context Mapping**: Easy context value injection for user targeting
+
+**Maven Dependency**:
+```xml
+<dependency>
+    <groupId>com.github.keaz</groupId>
+    <artifactId>fluxgate-spring-boot-starter</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+**Configuration**:
+```yaml
+fluxgate:
+  edge-url: http://localhost:8081
+  timeout: 5s
+  retry:
+    max-attempts: 3
+    backoff: 1s
+```
+
+**Usage**:
+```java
+@Autowired
+private FluxGateClient fluxGateClient;
+
+public void checkFeature() {
+    Map<String, String> context = Map.of("userId", "123", "role", "admin");
+    boolean enabled = fluxGateClient.evaluateFeature(
+        "BetaUsers",
+        "env-id",
+        context
+    );
+}
+```
+
+**Documentation**: See [fluxgate-spring/fluxgate-spring-boot-starter/README.md](fluxgate-spring/fluxgate-spring-boot-starter/README.md) for full details.
+
+### Direct Edge Server Integration
+
+For custom integrations, use the Edge Server REST API:
+- **Endpoint**: `POST /evaluate`
+- **Documentation**: Swagger UI at `http://localhost:8081/docs`
+- **Response Time**: Sub-10ms with in-memory caching
 
 
 ## 4) Quickstart: Docker Compose (local)
@@ -127,6 +228,40 @@ Ports (host):
 
 Notes:
 - Replace default passwords, ports, and seeds for any shared environments
+
+
+## 5) Screenshots and demos
+
+FluxGate features a modern, professional UI built with Material Dashboard design principles.
+
+### Demo Videos
+
+**Feature Management & Evaluation**
+- [System Overview Demo](./media/Screen%20Recording%202025-11-02%20at%2019.24.33.mov) - Complete walkthrough of the system overview dashboard with real-time metrics
+- [Real-Time Analytics Demo](./media/Screen%20Recording%202025-11-02%20at%2020.52.04.mov) - Demonstration of real-time evaluation analytics and dashboard features
+- [Quick Feature Demo](./media/My%20Movie.mp4) - Quick overview of feature management capabilities
+
+### UI Screenshots
+
+**Dashboard Views**
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+  <img src="./media/Screenshot%202025-11-02%20at%2021.32.24.heic" alt="Dashboard View 1" width="400"/>
+  <img src="./media/Screenshot%202025-11-02%20at%2021.32.46.heic" alt="Dashboard View 2" width="400"/>
+</div>
+
+**Feature Management & Kill Switch**
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+  <img src="./media/Screenshot%202025-11-02%20at%2021.37.14.heic" alt="Feature Management" width="400"/>
+  <img src="./media/Screenshot%202025-11-02%20at%2021.37.29.heic" alt="Kill Switch Monitor" width="400"/>
+</div>
+
+### Key UI Features Showcased
+
+- **Material Dashboard Theme**: Gradient buttons, elevated cards, sophisticated shadow hierarchy
+- **Real-Time Dashboards**: Live metrics with 30-second updates via GraphQL subscriptions
+- **Kill Switch Monitor**: Emergency controls with countdown timers and audit trail
+- **Chart Library**: Line, Area, Bar, Pie, and Donut charts powered by Recharts
+- **Responsive Design**: Mobile-friendly with modern Material Design components
 
 
 ## 6) Kubernetes deployment (reference manifests)
@@ -397,7 +532,7 @@ Security notes (prod):
 
 ### Feature Evaluation
 
-```curl
+```bash
 curl --location 'http://localhost:8081/evaluate' \
 --header 'Content-Type: application/json' \
 --data '{
@@ -417,6 +552,73 @@ curl --location 'http://localhost:8081/evaluate' \
 }'
 ```
 
+### Kill Switch Operations (GraphQL)
+
+**Emergency Disable Feature (with optional auto-rollback)**
+```graphql
+mutation {
+  emergencyDisableFeature(
+    id: "feature-uuid-here"
+    rollbackInMinutes: 30
+  ) {
+    id
+    key
+    killSwitchEnabled
+    killSwitchActivatedAt
+    rollbackScheduledAt
+  }
+}
+```
+
+**Emergency Enable Feature**
+```graphql
+mutation {
+  emergencyEnableFeature(id: "feature-uuid-here") {
+    id
+    key
+    killSwitchEnabled
+    killSwitchActivatedAt
+    rollbackScheduledAt
+  }
+}
+```
+
+### Real-Time Dashboard Subscriptions (GraphQL)
+
+**Subscribe to Evaluation Rates**
+```graphql
+subscription {
+  evaluationRates(input: {
+    featureKey: "new_checkout_flow"
+    environmentId: "production"
+    intervalMinutes: 5
+    durationHours: 2
+  }) {
+    timeBucket
+    evaluationCount
+    successCount
+    successRate
+    cacheHitRate
+  }
+}
+```
+
+**Subscribe to Evaluation Summary**
+```graphql
+subscription {
+  evaluationSummary(input: {
+    environmentId: "production"
+    durationHours: 24
+  }) {
+    totalEvaluations
+    successfulEvaluations
+    successRate
+    cacheHitRate
+    generatedAt
+  }
+}
+```
+
 
 ## 9) Local development commands (reference)
 
@@ -434,7 +636,91 @@ UI (feature-toggle-ui/):
 
 ## 10) Observability and dashboards
 
-- log4rs configuration per service for logs
-- Evaluation analytics persisted by backend for dashboards (see feature-toggle/DASHBOARD_IMPLEMENTATION.md)
-- Edge exposes /health for readiness checks; backend GraphQL is a simple liveness check
+FluxGate provides comprehensive real-time analytics and monitoring capabilities:
+
+### Real-Time Analytics Dashboards
+
+**System Overview Dashboard**
+- Live system metrics updated every 30 seconds
+- Total evaluations, active features, and cache hit rates
+- Top 5 most evaluated features
+- Feature growth trends and evaluation volume over time
+- Activity feed showing recent system events
+
+**Evaluation Analytics Dashboard**
+- Time-series evaluation metrics with customizable intervals (1-60 minutes)
+- Success rates and cache performance tracking
+- Distribution charts (by feature, environment, client)
+- Top features by evaluation count
+- Filter by feature key, environment, or client ID
+- View data across 1-24 hour time windows
+
+**Feature Rollout Dashboard**
+- Rollout health metrics and status monitoring
+- Pending approvals list with workflow tracking
+- Pipeline visualization showing deployment stages
+- **Kill Switch Monitor**: Real-time view of disabled features with countdown timers
+- Dependency graph visualization
+- Rollout timeline with historical data
+
+### GraphQL Subscriptions
+
+Real-time data streaming via GraphQL subscriptions:
+- `evaluationRates`: Time-bucketed evaluation metrics
+- `evaluationSummary`: Aggregated statistics
+- `evaluationDashboard`: Combined dashboard data
+- 30-second update intervals with efficient WebSocket connections
+
+### Kill Switch Monitoring
+
+**Emergency Controls Dashboard**
+- One-click feature disable/enable from feature table
+- Kill Switch Monitor shows all disabled features
+- Countdown timers for scheduled auto-rollback
+- Complete audit trail with user and timestamp tracking
+- Emergency disable with optional rollback scheduling (5-60 minutes)
+
+### Technical Features
+
+- **Backend**: log4rs configuration per service for logs
+- **Database**: Evaluation analytics persisted with time-series aggregation
+- **Edge**: /health endpoint for readiness checks
+- **Backend**: GraphQL endpoint for liveness checks
+- **UI**: Chart library with 5 chart types (Line, Area, Bar, Pie, Donut)
+- **Real-time**: WebSocket subscriptions with auto-reconnection
+- **Performance**: PostgreSQL time-bucketed queries with concurrent execution
+
+**Documentation**: See [feature-toggle/DASHBOARD_IMPLEMENTATION.md](feature-toggle/DASHBOARD_IMPLEMENTATION.md) for implementation details.
+
+
+## 11) Documentation & resources
+
+### Feature Documentation
+- **[KILL_SWITCH_FIX_SUMMARY.md](./KILL_SWITCH_FIX_SUMMARY.md)** - Complete kill switch implementation and logic fix details
+- **[feature-toggle/DASHBOARD_IMPLEMENTATION.md](./feature-toggle/DASHBOARD_IMPLEMENTATION.md)** - Real-time analytics dashboard with GraphQL subscriptions
+- **[CLUSTER_GRPC_FIX_SUMMARY.md](./CLUSTER_GRPC_FIX_SUMMARY.md)** - Cluster feature update propagation fix
+- **[CLUSTER_TESTING_GUIDE.md](./CLUSTER_TESTING_GUIDE.md)** - Multi-node cluster testing guide
+
+### UI Documentation
+- **[feature-toggle-ui/MATERIAL_DASHBOARD_COMPLETE_THEME.md](./feature-toggle-ui/MATERIAL_DASHBOARD_COMPLETE_THEME.md)** - Material Dashboard theme implementation
+- **[feature-toggle-ui/DASHBOARD_CHARTS_BG_CARD_MIGRATION.md](./feature-toggle-ui/DASHBOARD_CHARTS_BG_CARD_MIGRATION.md)** - Dashboard UI consistency updates
+- **[feature-toggle-ui/CHART_COMPONENTS_DOCUMENTATION.md](./feature-toggle-ui/CHART_COMPONENTS_DOCUMENTATION.md)** - Chart library usage guide
+
+### SDK & Integration
+- **[fluxgate-spring/fluxgate-spring-boot-starter/README.md](./fluxgate-spring/fluxgate-spring-boot-starter/README.md)** - Spring Boot integration guide
+
+### Development Guides
+- **[CLAUDE.md](./CLAUDE.md)** - Comprehensive development guide for contributors
+- **[feature-toggle/ReadME.md](./feature-toggle/ReadME.md)** - Backend workspace details
+- **[feature-toggle-ui/README.md](./feature-toggle-ui/README.md)** - UI development guide
+
+### Docker Images
+- **[Backend](https://hub.docker.com/r/keaz/flux-gate-backend)** - FluxGate Backend (Rust)
+- **[Edge](https://hub.docker.com/r/keaz/flux-gate-edge)** - FluxGate Edge Server (Rust)
+- **[UI](https://hub.docker.com/r/keaz/flux-gate-ui)** - FluxGate UI (React)
+
+### Support & Community
+- **Issues**: Report bugs or request features via GitHub Issues
+- **Discussions**: Join community discussions on GitHub
+- **Wiki**: [fluxgate.wiki](./fluxgate.wiki/) - Additional documentation and guides
 

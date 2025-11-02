@@ -37,6 +37,18 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 2
+      # Configure HTTPS and WSS for staging
+      - op: replace
+        path: /spec/template/spec/containers/0/env
+        value:
+          - name: BACKEND_HOST
+            value: api.staging.fluxgate.example.com
+          - name: BACKEND_PORT
+            value: "443"
+          - name: BACKEND_PROTOCOL
+            value: https
+          - name: WS_PROTOCOL
+            value: wss
 
   # Use specific version tags for staging
   - target:

@@ -21,11 +21,11 @@ spec:
             - name: BACKEND_HOST
               value: api.fluxgate.example.com
             - name: BACKEND_PORT
-              value: "80"
+              value: "443"
             - name: BACKEND_PROTOCOL
-              value: http
+              value: https
             - name: WS_PROTOCOL
-              value: ws
+              value: wss
           ports:
             - containerPort: 80
           resources:
