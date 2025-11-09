@@ -1,34 +1,47 @@
+# FluxGate Edge Server - Medium Profile
+# CPU: 1000m request, 2000m limit
+# Memory: 256Mi request, 512Mi limit
+# Purpose: 4x tiny baseline
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fluxgate-edge
+  name: fluxgate-edge-perf
   namespace: fluxgate
+  labels:
+    app: fluxgate-edge-perf
+    profile: medium
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fluxgate-edge
+      app: fluxgate-edge-perf
   template:
     metadata:
       labels:
-        app: fluxgate-edge
+        app: fluxgate-edge-perf
+        profile: medium
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
     spec:
       containers:
         - name: edge
-          image: keaz/flux-gate-edge:latest-arm64
+          image: keaz/flux-gate-edge:v0.0.11-alpha-arm64
           imagePullPolicy: Always
           env:
             - name: EDGE_CONFIG_FILE
               value: "/app/config/config.toml"
           ports:
             - containerPort: 8081
+            - containerPort: 9090
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "250m"
-            limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "1000m"
+            limits:
+              memory: "512Mi"
+              cpu: "2000m"
           volumeMounts:
             - name: config-toml
               mountPath: /app/config/config.toml

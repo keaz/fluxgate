@@ -1,0 +1,70 @@
+# FluxGate Edge Server - Tiny Profile (Current Baseline)
+# CPU: 250m request, 500m limit
+# Memory: 64Mi request, 128Mi limit
+# Purpose: Current baseline configuration
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluxgate-edge-perf
+  namespace: fluxgate
+  labels:
+    app: fluxgate-edge-perf
+    profile: tiny
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluxgate-edge-perf
+  template:
+    metadata:
+      labels:
+        app: fluxgate-edge-perf
+        profile: tiny
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: edge
+          image: keaz/flux-gate-edge:v0.0.11-alpha-arm64
+          imagePullPolicy: Always
+          env:
+            - name: EDGE_CONFIG_FILE
+              value: "/app/config/config.toml"
+            - name: RUST_LOG
+              value: "info"
+          ports:
+            - name: http
+              containerPort: 8081
+            - name: metrics
+              containerPort: 9090
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "250m"
+            limits:
+              memory: "128Mi"
+              cpu: "500m"
+          # Health probes disabled - endpoint may not be available
+          # livenessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8081
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 30
+          # readinessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8081
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          volumeMounts:
+            - name: config-toml
+              mountPath: /app/config/config.toml
+              subPath: config.toml
+      volumes:
+        - name: config-toml
+          configMap:
+            name: fluxgate-edge-config

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: ui
-          image: keaz/flux-gate-ui:latest
+          image: keaz/flux-gate-ui:v0.0.11-alpha
           imagePullPolicy: Always
           env:
             - name: BACKEND_HOST

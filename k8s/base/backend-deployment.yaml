@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: keaz/flux-gate-backend:v0.0.10-alpha-arm64
+          image: keaz/flux-gate-backend:v0.0.11-alpha-arm64
           imagePullPolicy: Always
           env:
             - name: DATABASE_URL

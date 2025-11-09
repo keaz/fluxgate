@@ -12,6 +12,12 @@ A modern feature toggle management system for controlled rollouts, safe experime
 
 ## 🚀 What's New
 
+### Feature Variants for A/B Testing
+Go beyond boolean flags! Serve different values (strings, numbers, JSON objects) to different user segments. Perfect for UI experiments, pricing tests, and configuration management. With deterministic bucketing and flexible JSONB storage, run sophisticated multivariate experiments without deploying new code.
+
+### Priority-Based Criteria Evaluation
+Control the order of criteria evaluation with priority fields. Drag-and-drop UI makes it easy to reorder targeting rules visually. Lower priority values are evaluated first, giving you precise control over complex targeting logic and ensuring the right users get the right experience.
+
 ### Emergency Kill Switch with Auto-Rollback
 Production incident? One click to safety. Instantly disable problematic features across all environments with automatic rollback scheduling (5-60 minutes). Includes centralized monitoring dashboard with countdown timers and complete audit trail.
 
@@ -25,14 +31,66 @@ Professional, polished interface matching Material Dashboard's design language w
 Enhanced gRPC streaming with proper feature update propagation across cluster nodes, ensuring edge server caches stay synchronized in multi-node deployments.
 
 ### Technical Achievements
-- **280+ Unit Tests**: Comprehensive test coverage across backend, edge, and evaluation engine
-- **Kill Switch Logic Fix**: Corrected inverted boolean semantics throughout the codebase with full test validation
-- **Cluster Replication**: Fixed gRPC subscribe-all mode for proper update propagation
-- **Performance**: PostgreSQL time-bucketed aggregation with concurrent queries for dashboard metrics
+- **Feature Variants System**: Flexible value storage supporting string, number, boolean, and JSON types
+- **Priority-Based Evaluation**: Ordered criteria processing with drag-and-drop UI for intuitive management
+- **280+ Unit Tests**: Comprehensive test coverage ensuring reliability
+- **Production-Ready**: Robust error handling and full audit trails
+- **High Performance**: Optimized queries and in-memory caching for sub-10ms evaluation
 - **Type Safety**: Full TypeScript implementation in UI with React 19 and Tailwind CSS 4
 - **Multi-Platform**: Docker images for amd64 and arm64 architectures
 
 📹 **Demo Videos & Screenshots**: Check out the [media/](./media/) folder for system demonstrations and UI screenshots.
+
+
+## 0.5) Feature Variants & Advanced Targeting
+
+### Feature Variants for A/B Testing
+
+FluxGate goes beyond simple boolean flags with **Feature Variants** - a powerful system for A/B testing and multivariate experiments:
+
+**What are Variants?**
+- Instead of just `true/false`, serve different values to different user segments
+- Support for multiple data types: `string`, `number`, `boolean`, or complex `json` objects
+- Each feature can have multiple named variants (e.g., "control", "variant-a", "variant-b")
+
+**How it Works:**
+1. Create variants for your feature with unique identifiers
+2. Configure targeting criteria to specify which variant to serve to which users
+3. Users matching specific criteria receive the corresponding variant value
+4. Consistent experience - users always see the same variant
+
+**Example Use Cases:**
+- **UI Experiments**: Serve different button colors or layouts
+  - Variant "control": `{"color": "blue", "size": "medium"}`
+  - Variant "test-a": `{"color": "green", "size": "large"}`
+- **Pricing Tests**: Different price points for user segments
+  - Variant "standard": `{"price": 9.99, "currency": "USD"}`
+  - Variant "premium": `{"price": 14.99, "currency": "USD"}`
+- **Feature Configs**: Different configuration values
+  - Variant "low": `{"timeout_ms": 1000, "retry_count": 3}`
+  - Variant "high": `{"timeout_ms": 5000, "retry_count": 5}`
+
+### Ordered Criteria Evaluation
+
+**Priority-Based Targeting:**
+- Control the order in which targeting rules are evaluated
+- Rules with lower priority numbers are checked first
+- First matching rule determines which variant users receive
+- Enables precise control over complex targeting scenarios
+
+**Visual Management:**
+- Drag-and-drop interface for reordering targeting rules
+- Real-time updates as you reorganize your criteria
+- No manual priority management needed
+
+**Why Order Matters:**
+```
+Priority 0: Premium users → Serve variant-a (50% rollout)
+Priority 1: Beta users → Serve variant-b (100% rollout)
+Priority 2: All others → Serve control (10% rollout)
+```
+
+With ordered evaluation, premium users always get their special treatment first, even if they're also in the beta group.
 
 
 ## 1) What FluxGate is
@@ -52,6 +110,13 @@ Big picture:
 
 - Feature modeling
   - Feature types (simple/contextual), multi-environment stages with order/position
+  - **Feature Variants**: A/B testing with multiple values (not just boolean on/off)
+    - Support for string, number, boolean, and JSON variant types
+    - Stage criteria can specify which variant to serve
+    - Flexible JSONB storage for complex variant payloads
+  - **Ordered Criteria Evaluation**: Priority-based evaluation with drag-and-drop UI
+    - Criteria evaluated in priority order (lower values first)
+    - Visual reordering in UI for intuitive priority management
   - Relationships and dependencies
   - Contexts and stage criteria with rollout percentages (bucketing)
 - Evaluation engine
@@ -532,24 +597,112 @@ Security notes (prod):
 
 ### Feature Evaluation
 
+**Simple Boolean Feature:**
 ```bash
 curl --location 'http://localhost:8081/evaluate' \
 --header 'Content-Type: application/json' \
 --data '{
-  "feature_key" :"BetaUsers",
-  "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
-  "context": [
-    {
-        "key":"userId",
-        "value":"15"
-    },
-    {
-        "key": "role",
-        "value":"admin"
-    }
-
-  ]
+  "flagKey": "BetaUsers",
+  "context": {
+    "bucketingKey": "user-15",
+    "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
+    "userId": "15",
+    "role": "admin"
+  }
 }'
+```
+
+**Response:**
+```json
+{
+  "flagKey": "BetaUsers",
+  "value": true,
+  "variant": null,
+  "reason": "TARGETED_MATCH"
+}
+```
+
+**Feature with Variant:**
+```bash
+curl --location 'http://localhost:8081/evaluate' \
+--header 'Content-Type: application/json' \
+--data '{
+  "flagKey": "checkout_button_text",
+  "context": {
+    "bucketingKey": "user-12345",
+    "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
+    "userId": "12345",
+    "tier": "premium"
+  }
+}'
+```
+
+**Response:**
+```json
+{
+  "flagKey": "checkout_button_text",
+  "value": "Get Started Today",
+  "variant": "variant-a",
+  "reason": "TARGETED_MATCH"
+}
+```
+
+For more API examples and integration guides, see the [Edge Server API Reference](./fluxgate.wiki/Edge-Server-API.md).
+
+### Feature Variant Operations (GraphQL)
+
+**Create Feature Variant**
+```graphql
+mutation {
+  createFeatureVariant(input: {
+    featureId: "feature-uuid-here"
+    control: "variant-a"
+    value: "{\"color\": \"blue\", \"size\": \"large\"}"
+    valueType: JSON
+    description: "Blue large button variant"
+  }) {
+    id
+    control
+    value
+    valueType
+    description
+  }
+}
+```
+
+**Query Feature Variants**
+```graphql
+query {
+  feature(id: "feature-uuid-here") {
+    id
+    key
+    variants {
+      id
+      control
+      value
+      valueType
+      description
+    }
+  }
+}
+```
+
+**Update Stage Criteria with Priority and Variant**
+```graphql
+mutation {
+  updateStageCriteria(input: {
+    id: "criteria-uuid-here"
+    priority: 0
+    serve: "variant-a"
+    enabled: true
+    rolloutPercentage: 50
+  }) {
+    id
+    priority
+    serve
+    enabled
+  }
+}
 ```
 
 ### Kill Switch Operations (GraphQL)
@@ -696,6 +849,7 @@ Real-time data streaming via GraphQL subscriptions:
 ## 11) Documentation & resources
 
 ### Feature Documentation
+- **[Feature Variants & Priority Evaluation](#05-feature-variants--advanced-targeting)** - A/B testing with variants and ordered criteria evaluation
 - **[KILL_SWITCH_FIX_SUMMARY.md](./KILL_SWITCH_FIX_SUMMARY.md)** - Complete kill switch implementation and logic fix details
 - **[feature-toggle/DASHBOARD_IMPLEMENTATION.md](./feature-toggle/DASHBOARD_IMPLEMENTATION.md)** - Real-time analytics dashboard with GraphQL subscriptions
 - **[CLUSTER_GRPC_FIX_SUMMARY.md](./CLUSTER_GRPC_FIX_SUMMARY.md)** - Cluster feature update propagation fix
@@ -719,8 +873,13 @@ Real-time data streaming via GraphQL subscriptions:
 - **[Edge](https://hub.docker.com/r/keaz/flux-gate-edge)** - FluxGate Edge Server (Rust)
 - **[UI](https://hub.docker.com/r/keaz/flux-gate-ui)** - FluxGate UI (React)
 
+### User Guides (Wiki)
+- **[User Guide Home](./fluxgate.wiki/Home.md)** - Getting started with FluxGate
+- **[Feature Variants Guide](./fluxgate.wiki/Feature-Variants.md)** - Complete guide to A/B testing with variants
+- **[Priority-Based Targeting](./fluxgate.wiki/Priority-Evaluation.md)** - Control evaluation order with priorities
+- **[Edge Server API Reference](./fluxgate.wiki/Edge-Server-API.md)** - API documentation with request/response examples
+
 ### Support & Community
 - **Issues**: Report bugs or request features via GitHub Issues
 - **Discussions**: Join community discussions on GitHub
-- **Wiki**: [fluxgate.wiki](./fluxgate.wiki/) - Additional documentation and guides
 
