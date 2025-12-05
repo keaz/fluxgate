@@ -4,7 +4,7 @@
 
 A modern feature toggle management system for controlled rollouts, safe experimentation, and progressive delivery.
 
-![Edit Feature](./edit-feature.png)
+![System Overview](./media/system_overview_2.jpg)
 
 - [Backend](https://hub.docker.com/r/keaz/flux-gate-backend): Rust (Actix-Web + async-graphql + tonic + sqlx + Postgres)
 - [Edge](https://hub.docker.com/r/keaz/flux-gate-edge): Rust (Actix HTTP + tonic gRPC client, in-memory cache, analytics flushing)
@@ -308,16 +308,27 @@ FluxGate features a modern, professional UI built with Material Dashboard design
 
 ### UI Screenshots
 
-**Dashboard Views**
+**System Overview Dashboard**
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-  <img src="./media/Screenshot%202025-11-02%20at%2021.32.24.heic" alt="Dashboard View 1" width="400"/>
-  <img src="./media/Screenshot%202025-11-02%20at%2021.32.46.heic" alt="Dashboard View 2" width="400"/>
+  <img src="./media/system_overview.jpg" alt="System Overview Dashboard" width="400"/>
+  <img src="./media/system_overview_2.jpg" alt="System Overview with Metrics" width="400"/>
 </div>
 
-**Feature Management & Kill Switch**
+**Feature Management with Variants**
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-  <img src="./media/Screenshot%202025-11-02%20at%2021.37.14.heic" alt="Feature Management" width="400"/>
-  <img src="./media/Screenshot%202025-11-02%20at%2021.37.29.heic" alt="Kill Switch Monitor" width="400"/>
+  <img src="./media/feature%20with%20variants.jpg" alt="Feature with Variants" width="400"/>
+  <img src="./media/feature%20rolloout.jpg" alt="Feature Rollout" width="400"/>
+</div>
+
+**Traffic Management & Approval Policies**
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+  <img src="./media/traffic_management.jpg" alt="Traffic Management" width="400"/>
+  <img src="./media/approval_policy_creation.jpg" alt="Approval Policy Creation" width="400"/>
+</div>
+
+**Approvals Workflow**
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+  <img src="./media/approvals.jpg" alt="Approvals Dashboard" width="400"/>
 </div>
 
 ### Key UI Features Showcased
