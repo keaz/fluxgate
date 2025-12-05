@@ -597,6 +597,10 @@ Security notes (prod):
 
 ### Feature Evaluation
 
+FluxGate Edge Server supports both a custom evaluation API and the [OpenFeature Remote Evaluation Protocol (OFREP)](https://openfeature.dev/specification/ofrep) standard for feature flag evaluation.
+
+#### Custom Evaluation API
+
 **Simple Boolean Feature:**
 ```bash
 curl --location 'http://localhost:8081/evaluate' \
@@ -646,6 +650,77 @@ curl --location 'http://localhost:8081/evaluate' \
   "reason": "TARGETED_MATCH"
 }
 ```
+
+#### OFREP (OpenFeature Remote Evaluation Protocol) API
+
+FluxGate implements the [OFREP specification](https://openfeature.dev/specification/ofrep) for standards-based feature flag evaluation. OFREP provides a vendor-neutral protocol for remote feature flag evaluation.
+
+**Endpoint:** `POST /ofrep/v1/evaluate/flags/{flagKey}`
+
+**Boolean Flag Evaluation:**
+```bash
+curl --location 'http://localhost:8081/ofrep/v1/evaluate/flags/BetaUsers' \
+--header 'Content-Type: application/json' \
+--data '{
+  "context": {
+    "bucketingKey": "user-15",
+    "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
+    "userId": "15",
+    "role": "admin"
+  }
+}'
+```
+
+**OFREP Response Format:**
+```json
+{
+  "key": "BetaUsers",
+  "value": true,
+  "reason": "TARGETING_MATCH",
+  "variant": null,
+  "metadata": {}
+}
+```
+
+**Variant Flag Evaluation:**
+```bash
+curl --location 'http://localhost:8081/ofrep/v1/evaluate/flags/checkout_button_text' \
+--header 'Content-Type: application/json' \
+--data '{
+  "context": {
+    "bucketingKey": "user-12345",
+    "environment_id": "78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017",
+    "userId": "12345",
+    "tier": "premium"
+  }
+}'
+```
+
+**Response:**
+```json
+{
+  "key": "checkout_button_text",
+  "value": "Get Started Today",
+  "reason": "TARGETING_MATCH",
+  "variant": "variant-a",
+  "metadata": {}
+}
+```
+
+**OFREP Response Fields:**
+- `key`: The feature flag key that was evaluated
+- `value`: The resolved flag value (boolean, string, number, or JSON object)
+- `reason`: Evaluation reason code (e.g., `TARGETING_MATCH`, `DEFAULT`, `DISABLED`)
+- `variant`: Optional variant identifier for A/B testing
+- `metadata`: Additional evaluation metadata
+
+**OFREP Benefits:**
+- **Standards-Based**: Compatible with OpenFeature SDKs and ecosystem
+- **Vendor-Neutral**: Easy migration between feature flag providers
+- **Interoperable**: Works with any OFREP-compliant client
+- **Future-Proof**: Follows industry-standard specification
+
+For more details on the OFREP specification, see the [official OFREP documentation](https://openfeature.dev/specification/ofrep).
 
 For more API examples and integration guides, see the [Edge Server API Reference](./fluxgate.wiki/Edge-Server-API.md).
 

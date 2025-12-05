@@ -19,7 +19,11 @@ spec:
           imagePullPolicy: Always
           env:
             - name: EDGE_CONFIG_FILE
-              value: "/app/config/config.toml"
+              value: "/app/config.toml"
+            - name: CLIENT_ID_UUID
+              value: e6415dec-37ba-430e-914c-06faec0201c1
+            - name: CLIENT_API_KEY
+              value: WP08dqJdCkMS8XBjXngoaJQGv8PHg0eFYPZ5sOEPeYTAH5Qw
           ports:
             - containerPort: 8081
           resources:
@@ -31,7 +35,7 @@ spec:
               cpu: "1000m"
           volumeMounts:
             - name: config-toml
-              mountPath: /app/config/config.toml
+              mountPath: /app/config.toml
               subPath: config.toml
       volumes:
         - name: config-toml

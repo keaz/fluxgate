@@ -35,6 +35,9 @@ patches:
       name: fluxgate-ui
     patch: |-
       - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: keaz/flux-gate-ui:latest
+      - op: replace
         path: /spec/replicas
         value: 1
       # Configure WebSocket protocol for dev environment
@@ -57,7 +60,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-backend:v0.0.9-alpha-arm64
+        value: keaz/flux-gate-backend:arm64-latest
 
   - target:
       kind: Deployment
@@ -65,7 +68,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: keaz/flux-gate-edge:v0.0.9-alpha-arm64
+        value: keaz/flux-gate-edge:arm64-latest
 
   # Update backend ConfigMap for dev environment
   - target:
@@ -89,17 +92,6 @@ patches:
           # JWT secret for token signing and verification
           jwt_secret = "dev_jwt_secret_minimum_32_characters_long_for_development"
 
-          #[cluster]
-          #enabled = true
-          #listen_addr = "0.0.0.0:6000"
-          #reconnect_delay_ms = 2000
-
-          # Database-backed peer discovery configuration
-          #[cluster.discovery]
-          #heartbeat_interval_secs = 30
-          #stale_threshold_secs = 90
-          #cleanup_interval_secs = 60
-
   # Update edge ConfigMap for dev environment
   - target:
       kind: ConfigMap
@@ -117,13 +109,13 @@ patches:
           http_addr = "0.0.0.0:8081"
 
           # Client credentials for backend authentication
-          client_id = "954e290b-a020-47f0-8478-3a3788d35398"
-          client_secret = "amVmezJ55Wm8ctSE5ydh8m0vMI6yRPEFUhjWk4IF7JtfJGVK"
+          client_id = "f9c5b0a2-4f39-4f9a-bd00-dbd4ca37fde3"
+          client_secret = "y8EU1tJ6r5voata4TB8xreWHCo5foxPb5SjxMsYIrU0S8V6s"
 
           # gRPC connection settings
           [grpc]
-          connect_timeout_secs = 5
-          timeout_secs = 10
+          connect_timeout_secs = 10
+          timeout_secs = 15
           tcp_keepalive_secs = 30
           http2_keepalive_secs = 20
           keep_alive_while_idle = true
@@ -132,8 +124,8 @@ patches:
 
           # Flush settings
           [flush]
-          assignment_flush_secs = 10
-          evaluation_flush_secs = 30
+          assignment_flush_secs = 60
+          evaluation_flush_secs = 5
 
           # Retry settings
           [retry]

@@ -20,19 +20,6 @@ data:
     # IMPORTANT: Override this in production with a secure secret
     jwt_secret = "your_secure_jwt_secret_change_in_production_minimum_32_characters"
 
-    # Cluster replication configuration
-    # Each node automatically generates a unique UUID as its node_id for auto-scaling support
-    [cluster]
-    enabled = true
-    listen_addr = "0.0.0.0:6000"
-    reconnect_delay_ms = 2000
-
-    # Database-backed peer discovery configuration
-    [cluster.discovery]
-    heartbeat_interval_secs = 30
-    stale_threshold_secs = 90
-    cleanup_interval_secs = 60
-
   log4rs.yaml: |
     refresh_rate: 30 seconds
 

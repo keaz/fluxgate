@@ -15,8 +15,8 @@ data:
 
     # Client credentials for backend authentication
     # IMPORTANT: Override these in production with actual values
-    client_id = "{{CLIENT_ID_UUID}}"
-    client_secret = "{{CLIENT_API_KEY}}"
+    client_id = "e6415dec-37ba-430e-914c-06faec0201c1"
+    client_secret = "WP08dqJdCkMS8XBjXngoaJQGv8PHg0eFYPZ5sOEPeYTAH5Qw"
 
     # gRPC connection settings
     [grpc]
