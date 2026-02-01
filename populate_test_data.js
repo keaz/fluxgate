@@ -38,6 +38,16 @@ const DATABASE_URL = 'postgres://postgres:root123@localhost:5432/feature_toggle'
 
 // Test data password (hashed with argon2)
 const DEFAULT_PASSWORD = 'password123';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD;
+
+const DEPLOY_APPROVAL_POLICY_NAME = 'Test Data Deploy Policy';
+
+const ROLE_IDS = {
+  approver: '00000000-0000-0000-0000-000000000001',
+  requester: '00000000-0000-0000-0000-000000000002',
+  teamAdmin: '00000000-0000-0000-0000-000000000003'
+};
 
 // Color codes for console output
 const colors = {
@@ -90,6 +100,281 @@ function logError(message) {
   console.error(`${colors.red}✗ ${message}${colors.reset}`);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getJwtRoles(token) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) {
+      return [];
+    }
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(Buffer.from(normalized, 'base64').toString('utf8'));
+    return Array.isArray(json.roles) ? json.roles : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+// Helper queries for existing data (supports resume/idempotent runs)
+async function getUserByUsername(token, username) {
+  const userByUsernameQuery = `
+    query UserByUsername($username: String!) {
+      userByUsername(username: $username) {
+        id
+        username
+        email
+      }
+    }
+  `;
+
+  try {
+    const data = await graphqlRequest(userByUsernameQuery, { username }, token);
+    if (data.userByUsername) {
+      return data.userByUsername;
+    }
+  } catch (error) {
+    // Fall back to search if direct lookup is unavailable
+  }
+
+  const searchQuery = `
+    query Users($name: String!, $pageNumber: Int!, $pageSize: Int!) {
+      users(name: $name, pageNumber: $pageNumber, pageSize: $pageSize) {
+        items {
+          id
+          username
+          email
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(searchQuery, { name: username, pageNumber: 1, pageSize: 50 }, token);
+  return data.users.items.find(user => user.username === username) || null;
+}
+
+async function ensureUserRoles(token, username, roleIds) {
+  const user = await getUserByUsername(token, username);
+  if (!user) {
+    logError(`User ${username} not found; cannot assign roles`);
+    return;
+  }
+
+  const mutation = `
+    mutation AssignUserRoles($userId: ID!, $input: AssignUserRolesInput!) {
+      assignUserRoles(userId: $userId, input: $input) {
+        id
+        name
+      }
+    }
+  `;
+
+  try {
+    await graphqlRequest(mutation, { userId: user.id, input: { roleIds } }, token);
+    logSuccess(`Ensured roles for ${username}`);
+  } catch (error) {
+    logError(`Failed to assign roles to ${username}: ${error.message}`);
+  }
+}
+
+async function getTeams(token) {
+  const query = `
+    query Teams {
+      teams {
+        id
+        name
+        description
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, {}, token);
+  return data.teams || [];
+}
+
+async function getContextsByTeam(token, teamId) {
+  const query = `
+    query Contexts($teamId: ID!) {
+      contexts(teamId: $teamId) {
+        items {
+          id
+          key
+          entries {
+            id
+            value
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.contexts.items || [];
+}
+
+async function getClientsByTeam(token, teamId) {
+  const query = `
+    query Clients($teamId: ID!) {
+      clients(teamId: $teamId) {
+        items {
+          id
+          name
+          enabled
+          clientType
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.clients.items || [];
+}
+
+async function getEnvironmentsByTeam(token, teamId) {
+  const query = `
+    query Environments($teamId: ID!) {
+      environments(teamId: $teamId) {
+        items {
+          id
+          name
+          active
+          environmentType
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.environments.items || [];
+}
+
+async function getPipelinesByTeam(token, teamId) {
+  const query = `
+    query Pipelines($teamId: ID!) {
+      pipelines(teamId: $teamId) {
+        items {
+          id
+          name
+          active
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.pipelines.items || [];
+}
+
+async function getFeaturesByTeam(token, teamId) {
+  const query = `
+    query Features($teamId: ID!) {
+      features(teamId: $teamId) {
+        items {
+          id
+          key
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.features.items || [];
+}
+
+async function getApprovalPolicies(token, teamId) {
+  const query = `
+    query ApprovalPolicies($teamId: ID!) {
+      approvalPolicies(teamId: $teamId) {
+        id
+        name
+        appliesTo
+        environmentIds
+        enabled
+        autoApproveAfterHours
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId }, token);
+  return data.approvalPolicies || [];
+}
+
+async function getFeatureWithStages(token, featureId) {
+  const query = `
+    query FeatureWithStages($id: ID!) {
+      feature(id: $id) {
+        id
+        key
+        stages {
+          id
+          status
+          environment {
+            id
+            name
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { id: featureId }, token);
+  if (!data || !data.feature) {
+    throw new Error(`Feature not found or inaccessible: ${featureId}`);
+  }
+  return data.feature;
+}
+
+async function requestStageChange(token, stageId, request) {
+  const mutation = `
+    mutation RequestStageChange($stageId: ID!, $request: StageChangeRequest!) {
+      requestStageChange(stageId: $stageId, request: $request) {
+        id
+        key
+        pendingApprovalRequestId
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(mutation, { stageId, request }, token);
+  return data.requestStageChange;
+}
+
+async function approveChangeRequest(token, requestId) {
+  const mutation = `
+    mutation ApproveChangeRequest($requestId: ID!) {
+      approveChangeRequest(requestId: $requestId) {
+        id
+        status
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(mutation, { requestId }, token);
+  return data.approveChangeRequest;
+}
+
+async function getPendingApprovalRequest(token, teamId, featureId, environmentId) {
+  const query = `
+    query ApprovalRequests($teamId: ID!, $statuses: [ApprovalRequestStatus!]) {
+      approvalRequests(teamId: $teamId, statuses: $statuses) {
+        items {
+          id
+          featureId
+          environmentId
+          status
+        }
+      }
+    }
+  `;
+
+  const data = await graphqlRequest(query, { teamId, statuses: ['Pending'] }, token);
+  return data.approvalRequests.items.find(request => (
+    request.featureId === featureId && request.environmentId === environmentId
+  )) || null;
+}
+
 // 1. Create initial admin (if needed) - is_admin will be set to true by the backend
 async function createInitialAdmin() {
   logStep('Creating initial admin account...');
@@ -106,8 +391,8 @@ async function createInitialAdmin() {
   `;
 
   const input = {
-    username: 'admin',
-    password: DEFAULT_PASSWORD,
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
     firstName: 'Admin',
     lastName: 'User',
     email: 'admin@fluxgate.io'
@@ -185,6 +470,16 @@ async function registerUsers(token) {
 
   for (const user of users) {
     try {
+      const existingUser = await getUserByUsername(token, user.username);
+      if (existingUser) {
+        createdUsers.push({
+          ...user,
+          id: existingUser.id
+        });
+        logSuccess(`Using existing user: ${user.username}`);
+        continue;
+      }
+
       const input = {
         username: user.username,
         password: user.password,
@@ -213,13 +508,6 @@ async function registerUsers(token) {
 async function assignUserRoles(token, users) {
   logStep('Assigning roles to users...');
 
-  // Role IDs from the database
-  const roles = {
-    approver: '00000000-0000-0000-0000-000000000001',
-    requester: '00000000-0000-0000-0000-000000000002',
-    teamAdmin: '00000000-0000-0000-0000-000000000003'
-  };
-
   const mutation = `
     mutation AssignUserRoles($userId: ID!, $input: AssignUserRolesInput!) {
       assignUserRoles(userId: $userId, input: $input) {
@@ -234,23 +522,23 @@ async function assignUserRoles(token, users) {
   const assignments = [
     {
       username: 'alice.smith',
-      roleIds: [roles.requester, roles.approver]
+      roleIds: [ROLE_IDS.requester, ROLE_IDS.approver]
     },
     {
       username: 'bob.johnson',
-      roleIds: [roles.requester]
+      roleIds: [ROLE_IDS.requester]
     },
     {
       username: 'carol.williams',
-      roleIds: [roles.approver]
+      roleIds: [ROLE_IDS.approver]
     },
     {
       username: 'david.brown',
-      roleIds: [roles.teamAdmin, roles.requester]
+      roleIds: [ROLE_IDS.teamAdmin, ROLE_IDS.requester]
     },
     {
       username: 'emma.davis',
-      roleIds: [roles.approver, roles.requester]
+      roleIds: [ROLE_IDS.approver, ROLE_IDS.requester]
     }
   ];
 
@@ -291,8 +579,8 @@ async function loginAsAdmin() {
   `;
 
   const input = {
-    username: 'admin',
-    password: DEFAULT_PASSWORD
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD
   };
 
   const data = await graphqlRequest(mutation, { input });
@@ -303,6 +591,25 @@ async function loginAsAdmin() {
 
   logSuccess(`Logged in as: ${data.login.user.username}`);
   return data.login.token;
+}
+
+async function loginAsAdminWithRetry(attempts = 3, delayMs = 1200) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      if (attempt > 1) {
+        await sleep(delayMs);
+      }
+      return await loginAsAdmin();
+    } catch (error) {
+      lastError = error;
+      const message = error.message || '';
+      if (!message.includes('Database error occurred') || attempt === attempts) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }
 
 // 5. Create contexts
@@ -356,10 +663,28 @@ async function createContexts(token, teams) {
   `;
 
   const createdContexts = [];
+  const contextsByTeam = new Map();
 
   for (const context of contexts) {
     try {
       const teamId = teams[context.teamIndex].actualId;
+      if (!contextsByTeam.has(teamId)) {
+        const existingContexts = await getContextsByTeam(token, teamId);
+        contextsByTeam.set(teamId, existingContexts);
+      }
+
+      const existingContext = contextsByTeam
+        .get(teamId)
+        .find(existing => existing.key === context.key);
+      if (existingContext) {
+        createdContexts.push({
+          ...context,
+          id: existingContext.id,
+          entries: existingContext.entries
+        });
+        logSuccess(`Using existing context: ${context.key}`);
+        continue;
+      }
 
       const input = {
         key: context.key,
@@ -449,10 +774,27 @@ async function createClients(token, teams) {
   `;
 
   const createdClients = [];
+  const clientsByTeam = new Map();
 
   for (const client of clients) {
     try {
       const teamId = teams[client.teamIndex].actualId;
+      if (!clientsByTeam.has(teamId)) {
+        const existingClients = await getClientsByTeam(token, teamId);
+        clientsByTeam.set(teamId, existingClients);
+      }
+
+      const existingClient = clientsByTeam
+        .get(teamId)
+        .find(existing => existing.name === client.name);
+      if (existingClient) {
+        createdClients.push({
+          ...client,
+          id: existingClient.id
+        });
+        logSuccess(`Using existing client: ${client.name}`);
+        continue;
+      }
 
       const input = {
         name: client.name,
@@ -514,9 +856,20 @@ async function createTeams(token) {
   `;
 
   const createdTeams = [];
+  const existingTeams = await getTeams(token);
 
   for (const team of teams) {
     try {
+      const existingTeam = existingTeams.find(existing => existing.name === team.name);
+      if (existingTeam) {
+        createdTeams.push({
+          ...team,
+          actualId: existingTeam.id
+        });
+        logSuccess(`Using existing team: ${team.name} (ID: ${existingTeam.id})`);
+        continue;
+      }
+
       const input = {
         name: team.name,
         description: team.description
@@ -587,17 +940,39 @@ async function createEnvironments(token, teams) {
         name
         active
         teamId
+        environmentType
       }
     }
   `;
 
   const createdEnvironments = [];
+  const environmentsByTeam = new Map();
 
   for (const teamEnv of teamEnvironments) {
     const teamId = teams[teamEnv.teamIndex].actualId;
+    if (!environmentsByTeam.has(teamId)) {
+      const existingEnvironments = await getEnvironmentsByTeam(token, teamId);
+      environmentsByTeam.set(teamId, existingEnvironments);
+    }
+    const existingEnvMap = new Map(
+      environmentsByTeam.get(teamId).map(env => [env.name, env])
+    );
 
     for (const env of teamEnv.environments) {
       try {
+        const existingEnv = existingEnvMap.get(env.name);
+        if (existingEnv) {
+          createdEnvironments.push({
+            ...env,
+            id: existingEnv.id,
+            teamIndex: teamEnv.teamIndex,
+            teamId: teamId,
+            environmentType: existingEnv.environmentType
+          });
+          logSuccess(`Using existing environment: ${env.name} (ID: ${existingEnv.id})`);
+          continue;
+        }
+
         const input = {
           name: env.name,
           active: env.active
@@ -608,7 +983,8 @@ async function createEnvironments(token, teams) {
           ...env,
           id: data.createEnvironment.id,
           teamIndex: teamEnv.teamIndex,
-          teamId: teamId
+          teamId: teamId,
+          environmentType: data.createEnvironment.environmentType
         });
         logSuccess(`Created environment: ${env.name} (ID: ${data.createEnvironment.id})`);
       } catch (error) {
@@ -626,8 +1002,7 @@ async function createPipelines(token, teams, environments) {
 
   // Create different pipeline structures for different teams
   // Position format: { "x": 250, "y": 250 } - x increases horizontally, y increases vertically
-  // orderIndex: Each stage MUST have a unique sequential orderIndex (0, 1, 2, 3...)
-  // Branches are identified by relationships (same sourceId, multiple targetIds)
+  // orderIndex must be unique per stage within the pipeline (API validation enforces uniqueness)
   const pipelines = [
     {
       name: 'E-Commerce Standard Pipeline',
@@ -650,13 +1025,13 @@ async function createPipelines(token, teams, environments) {
       stages: [
         { envName: 'Analytics-Dev', orderIndex: 0, position: { x: 100, y: 200 } },
         { envName: 'Analytics-SIT', orderIndex: 1, position: { x: 300, y: 200 } },
-        { envName: 'Analytics-Prod-US-East', orderIndex: 2, position: { x: 500, y: 100 } },  // Branch from SIT
-        { envName: 'Analytics-Prod-EU', orderIndex: 3, position: { x: 500, y: 300 } }        // Branch from SIT
+        { envName: 'Analytics-Prod-US-East', orderIndex: 2, position: { x: 500, y: 100 } },  // Branch 0
+        { envName: 'Analytics-Prod-EU', orderIndex: 3, position: { x: 500, y: 300 } }        // Branch 1
       ],
       relationships: [
         { sourceId: 0, targetId: 1 },  // Dev -> SIT
-        { sourceId: 1, targetId: 2 },  // SIT -> Prod-US-East (branch)
-        { sourceId: 1, targetId: 3 }   // SIT -> Prod-EU (branch from same source)
+        { sourceId: 1, targetId: 2 },  // SIT -> Prod-US-East (branch 0)
+        { sourceId: 1, targetId: 3 }   // SIT -> Prod-EU (branch 1)
       ]
     },
     {
@@ -693,13 +1068,13 @@ async function createPipelines(token, teams, environments) {
       stages: [
         { envName: 'E-Commerce-Dev', orderIndex: 0, position: { x: 100, y: 200 } },
         { envName: 'E-Commerce-QA', orderIndex: 1, position: { x: 300, y: 200 } },
-        { envName: 'E-Commerce-Prod-US-East', orderIndex: 2, position: { x: 500, y: 100 } },  // Branch from QA
-        { envName: 'E-Commerce-Prod-APAC', orderIndex: 3, position: { x: 500, y: 300 } }      // Branch from QA
+        { envName: 'E-Commerce-Prod-US-East', orderIndex: 2, position: { x: 500, y: 100 } },  // Branch 0
+        { envName: 'E-Commerce-Prod-APAC', orderIndex: 3, position: { x: 500, y: 300 } }      // Branch 1
       ],
       relationships: [
         { sourceId: 0, targetId: 1 },  // Dev -> QA
-        { sourceId: 1, targetId: 2 },  // QA -> Prod-US-East (branch)
-        { sourceId: 1, targetId: 3 }   // QA -> Prod-APAC (branch from same source)
+        { sourceId: 1, targetId: 2 },  // QA -> Prod-US-East (branch 0)
+        { sourceId: 1, targetId: 3 }   // QA -> Prod-APAC (branch 1)
       ]
     }
   ];
@@ -711,10 +1086,28 @@ async function createPipelines(token, teams, environments) {
   `;
 
   const createdPipelines = [];
+  const pipelinesByTeam = new Map();
 
   for (const pipeline of pipelines) {
+    const pipelineRecord = { ...pipeline, id: null };
+    const teamId = teams[pipeline.teamIndex].actualId;
+
     try {
-      const teamId = teams[pipeline.teamIndex].actualId;
+      if (!pipelinesByTeam.has(teamId)) {
+        const existingPipelines = await getPipelinesByTeam(token, teamId);
+        pipelinesByTeam.set(teamId, existingPipelines);
+      }
+
+      const existingPipeline = pipelinesByTeam
+        .get(teamId)
+        .find(existing => existing.name === pipeline.name);
+
+      if (existingPipeline) {
+        pipelineRecord.id = existingPipeline.id;
+        createdPipelines.push(pipelineRecord);
+        logSuccess(`Using existing pipeline: ${pipeline.name} (ID: ${existingPipeline.id})`);
+        continue;
+      }
 
       // Map stages to use actual environment IDs
       const stages = pipeline.stages.map(stage => {
@@ -736,13 +1129,15 @@ async function createPipelines(token, teams, environments) {
       };
 
       const data = await graphqlRequest(mutation, { teamId, input }, token);
-      createdPipelines.push({
-        ...pipeline,
-        id: data.createPipeline
-      });
+      pipelineRecord.id = data.createPipeline;
+      createdPipelines.push(pipelineRecord);
       logSuccess(`Created pipeline: ${pipeline.name} (ID: ${data.createPipeline})`);
     } catch (error) {
       logError(`Failed to create pipeline ${pipeline.name}: ${error.message}`);
+    } finally {
+      if (!createdPipelines.includes(pipelineRecord)) {
+        createdPipelines.push(pipelineRecord);
+      }
     }
   }
 
@@ -1132,11 +1527,37 @@ async function createFeatures(token, teams, pipelines, environments, contexts) {
   `;
 
   const createdFeatures = [];
+  const featuresByTeam = new Map();
 
   for (const feature of features) {
     try {
       const teamId = teams[feature.teamIndex].actualId;
+      if (!featuresByTeam.has(teamId)) {
+        const existingFeatures = await getFeaturesByTeam(token, teamId);
+        featuresByTeam.set(teamId, existingFeatures);
+      }
+
+      const existingFeature = featuresByTeam
+        .get(teamId)
+        .find(existing => existing.key === feature.key);
+      if (existingFeature) {
+        createdFeatures.push({
+          ...feature,
+          id: existingFeature.id
+        });
+        logSuccess(`Using existing feature: ${feature.key} (ID: ${existingFeature.id})`);
+
+        if (feature.featureType === 'Contextual' && feature.contextualSettings) {
+          await addContextualSettings(token, existingFeature.id, [], feature.contextualSettings, contexts, teams[feature.teamIndex]);
+        }
+        continue;
+      }
+
       const pipeline = pipelines[feature.pipelineIndex];
+      if (!pipeline || !pipeline.stages) {
+        logError(`Skipping feature ${feature.key}: pipeline index ${feature.pipelineIndex} not available`);
+        continue;
+      }
 
       // Build stages array based on pipeline stages
       const stages = pipeline.stages.map((stage, index) => {
@@ -1217,8 +1638,17 @@ async function addContextualSettings(token, featureId, stages, settings, allCont
     const setCriteriaMutation = `
       mutation SetStageCriteria($stageId: ID!, $criteria: [CreateStageCriterionInput!]!) {
         setStageCriteria(stageId: $stageId, criteria: $criteria) {
-          contextKey
-          rolloutPercentage
+          id
+          priority
+          ruleGroups {
+            logicOperator
+            conditions {
+              contextKey
+              operator
+              value
+              orderIndex
+            }
+          }
         }
       }
     `;
@@ -1243,13 +1673,28 @@ async function addContextualSettings(token, featureId, stages, settings, allCont
 
         // Set criteria for this stage
         if (envSettings.criteria && envSettings.criteria.length > 0) {
-          const criteria = envSettings.criteria.map(c => {
+          const criteria = envSettings.criteria.map((c, index) => {
             const context = allContexts.find(ctx => ctx.key === c.contextKey);
-            return context ? {
-              contextKey: c.contextKey,
-              contextId: context.id,
-              rolloutPercentage: c.rolloutPercentage
-            } : null;
+            const entryValue = context?.entries?.[0]?.value;
+            if (!entryValue) {
+              return null;
+            }
+            return {
+              priority: index,
+              ruleGroups: [
+                {
+                  logicOperator: 'AND',
+                  conditions: [
+                    {
+                      contextKey: c.contextKey,
+                      operator: 'IN',
+                      value: [entryValue],
+                      orderIndex: 0
+                    }
+                  ]
+                }
+              ]
+            };
           }).filter(c => c !== null);
 
           if (criteria.length > 0) {
@@ -1261,6 +1706,174 @@ async function addContextualSettings(token, featureId, stages, settings, allCont
     }
   } catch (error) {
     logStep(`  → Failed to add contextual settings: ${error.message}`, true);
+  }
+}
+
+function policyAppliesToEnvironment(policy, environment) {
+  if (!policy.enabled) {
+    return false;
+  }
+
+  if (policy.autoApproveAfterHours !== null && policy.autoApproveAfterHours !== undefined) {
+    return false;
+  }
+
+  const appliesTo = (policy.appliesTo || '').toLowerCase();
+  if (appliesTo === 'all') {
+    return true;
+  }
+  if (appliesTo === 'specific_environments') {
+    return Array.isArray(policy.environmentIds) && policy.environmentIds.includes(environment.id);
+  }
+  if (appliesTo === 'production_only') {
+    return (environment.environmentType || '').toLowerCase() === 'production';
+  }
+  return false;
+}
+
+async function ensureApprovalPolicies(token, environments) {
+  logStep('Ensuring approval policies for deployments...');
+
+  const envsByTeam = new Map();
+
+  for (const env of environments) {
+    if (!envsByTeam.has(env.teamId)) {
+      envsByTeam.set(env.teamId, []);
+    }
+    envsByTeam.get(env.teamId).push(env);
+  }
+
+  const mutation = `
+    mutation CreateApprovalPolicy($teamId: ID!, $input: CreateApprovalPolicyInput!) {
+      createApprovalPolicy(teamId: $teamId, input: $input) {
+        id
+        name
+        appliesTo
+        environmentIds
+        enabled
+      }
+    }
+  `;
+
+  for (const [teamId, teamEnvs] of envsByTeam.entries()) {
+    if (teamEnvs.length === 0) {
+      continue;
+    }
+
+    const policies = await getApprovalPolicies(token, teamId);
+    const allCovered = teamEnvs.every(env =>
+      policies.some(policy => policyAppliesToEnvironment(policy, env))
+    );
+
+    if (allCovered) {
+      logSuccess(`Approval policy already covers target environments for team ${teamId}`);
+      continue;
+    }
+
+    const input = {
+      name: DEPLOY_APPROVAL_POLICY_NAME,
+      description: 'Auto-generated policy for test data deployments',
+      appliesTo: 'specific_environments',
+      environmentIds: teamEnvs.map(env => env.id),
+      requiredApprovers: 1,
+      approverRoleIds: [ROLE_IDS.approver],
+      autoApproveAfterHours: null,
+      enabled: true
+    };
+
+    try {
+      const data = await graphqlRequest(mutation, { teamId, input }, token);
+      logSuccess(`Created approval policy: ${data.createApprovalPolicy.name}`);
+    } catch (error) {
+      logError(`Failed to create approval policy for team ${teamId}: ${error.message}`);
+    }
+  }
+}
+
+async function deployStage(token, teamId, featureId, featureKey, stage) {
+  const stageLabel = `${featureKey} → ${stage.environment.name}`;
+
+  try {
+    if (stage.status === 'DEPLOYED') {
+      logSuccess(`Already deployed: ${stageLabel}`);
+      return;
+    }
+
+    if (stage.status === 'DEPLOYMENT_APPROVED') {
+      await requestStageChange(token, stage.id, 'DEPLOYED');
+      logSuccess(`Deployed: ${stageLabel}`);
+      return;
+    }
+
+    let pendingRequestId = null;
+
+    if (stage.status === 'DEPLOYMENT_REQUESTED') {
+      const pending = await getPendingApprovalRequest(token, teamId, featureId, stage.environment.id);
+      if (!pending) {
+        logError(`No pending approval request found for ${stageLabel}`);
+        return;
+      }
+      pendingRequestId = pending.id;
+    } else if (['NOT_DEPLOYED', 'DEPLOYMENT_REJECTED', 'ROLLBACKED'].includes(stage.status)) {
+      const result = await requestStageChange(token, stage.id, 'DEPLOYMENT_REQUESTED');
+      pendingRequestId = result.pendingApprovalRequestId;
+      if (!pendingRequestId) {
+        logError(`No approval request created for ${stageLabel}. Check approval policy coverage.`);
+        return;
+      }
+    } else {
+      logError(`Skipping ${stageLabel}: unsupported status ${stage.status}`);
+      return;
+    }
+
+    if (pendingRequestId) {
+      await approveChangeRequest(token, pendingRequestId);
+    }
+
+    const refreshed = await getFeatureWithStages(token, featureId);
+    const refreshedStage = refreshed.stages.find(s => s.id === stage.id);
+    if (!refreshedStage) {
+      logError(`Unable to refresh stage for ${stageLabel}`);
+      return;
+    }
+
+    if (refreshedStage.status !== 'DEPLOYMENT_APPROVED') {
+      logError(`Expected DEPLOYMENT_APPROVED for ${stageLabel}, got ${refreshedStage.status}`);
+      return;
+    }
+
+    await requestStageChange(token, stage.id, 'DEPLOYED');
+    logSuccess(`Deployed: ${stageLabel}`);
+  } catch (error) {
+    logError(`Failed to deploy ${stageLabel}: ${error.message}`);
+  }
+}
+
+async function deployFeaturesToEnvironments(token, teams, features) {
+  logStep('Deploying all features to all stages...');
+
+  for (const feature of features) {
+    try {
+      if (!feature || !feature.id) {
+        logError(`Skipping feature with missing ID: ${feature?.key || 'unknown'}`);
+        continue;
+      }
+
+      const teamId = teams[feature.teamIndex].actualId;
+      const featureData = await getFeatureWithStages(token, feature.id);
+      const stagesToDeploy = featureData.stages || [];
+
+      if (stagesToDeploy.length === 0) {
+        logStep(`No stages found for ${feature.key}`, true);
+        continue;
+      }
+
+      for (const stage of stagesToDeploy) {
+        await deployStage(token, teamId, feature.id, feature.key, stage);
+      }
+    } catch (error) {
+      logError(`Failed to deploy feature ${feature?.key || 'unknown'}: ${error.message}`);
+    }
   }
 }
 
@@ -1291,6 +1904,20 @@ async function main() {
     await assignUserRoles(token, users);
     console.log('');
 
+    // Step 4.1: Ensure admin can deploy across all teams
+    await ensureUserRoles(token, ADMIN_USERNAME, [ROLE_IDS.requester, ROLE_IDS.approver]);
+    let deploymentToken = token;
+    const roles = getJwtRoles(token);
+    if (!roles.includes('Requester') || !roles.includes('Approver')) {
+      try {
+        deploymentToken = await loginAsAdminWithRetry();
+      } catch (error) {
+        logError(`Failed to refresh admin token: ${error.message}`);
+        deploymentToken = null;
+      }
+    }
+    console.log('');
+
     // Step 5: Create teams
     const teams = await createTeams(token);
     console.log('');
@@ -1307,6 +1934,10 @@ async function main() {
     const environments = await createEnvironments(token, teams);
     console.log('');
 
+    // Step 8.1: Ensure approval policies exist for target deployments
+    await ensureApprovalPolicies(token, environments);
+    console.log('');
+
     // Step 9: Create pipelines
     const pipelines = await createPipelines(token, teams, environments);
     console.log('');
@@ -1314,6 +1945,15 @@ async function main() {
     // Step 10: Create features
     const features = await createFeatures(token, teams, pipelines, environments, contexts);
     console.log('');
+
+    // Step 11: Deploy target features to target environments
+    if (deploymentToken) {
+      await deployFeaturesToEnvironments(deploymentToken, teams, features);
+      console.log('');
+    } else {
+      logError('Skipping deployments because no deployment token is available.');
+      console.log('');
+    }
 
     // Summary
     console.log(`${colors.bright}${colors.green}`);

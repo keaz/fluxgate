@@ -4,7 +4,7 @@
 
 A modern feature toggle management system for controlled rollouts, safe experimentation, and progressive delivery.
 
-![System Overview](./media/system_overview_2.jpg)
+![System Overview](./media/new_evaluation.jpg)
 
 - [Backend](https://hub.docker.com/r/keaz/flux-gate-backend): Rust (Actix-Web + async-graphql + tonic + sqlx + Postgres)
 - [Edge](https://hub.docker.com/r/keaz/flux-gate-edge): Rust (Actix HTTP + tonic gRPC client, in-memory cache, analytics flushing)

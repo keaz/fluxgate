@@ -4,7 +4,11 @@
   "description": "Test data population script for FluxGate using GraphQL API",
   "type": "module",
   "scripts": {
-    "populate": "node populate_test_data.js"
+    "populate": "node populate_test_data.js",
+    "populate:perf": "node populate_perf_test_data.js",
+    "populate:perf:mt": "node populate_perf_test_data_mt.js",
+    "populate:perf:mt:8": "node populate_perf_test_data_mt.js --threads=8",
+    "populate:perf:mt:16": "node populate_perf_test_data_mt.js --threads=16"
   },
   "engines": {
     "node": ">=18.0.0"
