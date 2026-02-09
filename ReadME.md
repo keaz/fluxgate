@@ -1,14 +1,12 @@
 # FluxGate — Feature Flag Delivery Platform ![FluxGate Logo](./favicon.svg)
 
-> **Important Note:** FluxGate is currently in **beta**. APIs, configuration, and deployment details may change.
-
 A modern feature toggle management system for controlled rollouts, safe experimentation, and progressive delivery.
 
 ![System Overview](./media/new_evaluation.jpg)
 
-- [Backend](https://hub.docker.com/r/keaz/flux-gate-backend): Rust (Actix-Web + async-graphql + tonic + sqlx + Postgres)
+- [Backend](https://hub.docker.com/r/keaz/flux-gate-backend): Rust (Actix-Web + REST + utoipa + tonic + sqlx + Postgres)
 - [Edge](https://hub.docker.com/r/keaz/flux-gate-edge): Rust (Actix HTTP + tonic gRPC client, in-memory cache, analytics flushing)
-- [UI](https://hub.docker.com/r/keaz/flux-gate-ui): React (Vite, Apollo Client, Tailwind)
+- [UI](https://hub.docker.com/r/keaz/flux-gate-ui): React (Vite, REST + WebSocket, Tailwind)
 
 ## 🚀 What's New
 
@@ -22,7 +20,7 @@ Control the order of criteria evaluation with priority fields. Drag-and-drop UI 
 Production incident? One click to safety. Instantly disable problematic features across all environments with automatic rollback scheduling (5-60 minutes). Includes centralized monitoring dashboard with countdown timers and complete audit trail.
 
 ### Real-Time Analytics Dashboard
-See what's happening NOW, not what happened yesterday. Live metrics updated every 30 seconds via GraphQL subscriptions, with time-series visualization, flexible aggregation (1-60 minute intervals), and performance-optimized PostgreSQL queries.
+See what's happening NOW, not what happened yesterday. Live metrics updated every 30 seconds via WebSocket streams, with time-series visualization, flexible aggregation (1-60 minute intervals), and performance-optimized PostgreSQL queries.
 
 ### Modern Material Dashboard UI
 Professional, polished interface matching Material Dashboard's design language with gradient buttons, elevated cards, comprehensive chart library (Line, Area, Bar, Pie, Donut), and sophisticated shadow hierarchy.
@@ -96,12 +94,12 @@ With ordered evaluation, premium users always get their special treatment first,
 ## 1) What FluxGate is
 
 FluxGate is a full-stack feature flag platform that lets product and platform teams define, manage, and deliver features safely across environments. It provides:
-- A backend with GraphQL (CRUD, auth, subscriptions) and gRPC (edge streaming, evaluation, user assignments)
+- A backend with REST (CRUD, auth, streaming) and gRPC (edge streaming, evaluation, user assignments)
 - An edge service optimized for fast, cached, context-aware evaluations and analytics collection
 - A React UI to administer teams, environments, pipelines/stages, features, contexts, clients, and RBAC
 
 Big picture:
-- UI → Backend GraphQL at /graphql for creation, updates, and real-time dashboards
+- UI → Backend REST at /api/v1 for creation, updates, and dashboards (WebSocket streams via /api/v1/ws)
 - Edge → Backend gRPC for initial feature snapshot and incremental FeatureUpdate stream, plus evaluation/event push
 - Backend → Postgres for persistence and migrations; broadcasts updates to subscribed edges
 
@@ -134,7 +132,7 @@ Big picture:
   - **Kill Switch Monitor**: Dashboard view of all disabled features with countdown timers
   - Complete audit trail with timestamps and user tracking
 - Real-time analytics
-  - **GraphQL Subscriptions**: Live metrics updated every 30 seconds
+  - **WebSocket Streams**: Live metrics updated every 30 seconds
   - **Time-Series Data**: 24-hour evaluation tracking with configurable intervals (1-60 minutes)
   - **Dashboard Metrics**: Evaluation rates, success rates, cache hit rates
   - **Flexible Filtering**: By feature, environment, or client
@@ -144,9 +142,9 @@ Big picture:
   - **Material Dashboard Design**: Professional Material Design theme
   - **Chart Library**: 5 chart types (Line, Area, Bar, Pie, Donut) powered by Recharts
   - **Responsive Design**: Mobile-friendly with gradient buttons and elevated cards
-  - **Real-time Updates**: WebSocket subscriptions with auto-reconnection
+  - **Real-time Updates**: WebSocket streaming with auto-reconnection
 - Security & auth
-  - JWT-based user auth for GraphQL
+  - JWT-based user auth for REST
   - Role-Based Access Control for deployment workflows (Requester, Approver, Team Admin)
   - Client credentials for edge/SDK-style access to feature data
 
@@ -154,7 +152,7 @@ Big picture:
 ## 3) Architecture and components
 
 - feature-toggle-backend (Rust)
-  - HTTP (Actix-Web) GraphQL endpoint at /graphql with GraphiQL enabled
+  - HTTP (Actix-Web) REST API at /api/v1 with OpenAPI at /api/v1/openapi.json and /docs
   - gRPC server (tonic) for edge connections.
   - Dependency-injected logic/repositories, SQLx Postgres
   - Broadcast channel delivers Feature Update messages to all subscribers
@@ -166,11 +164,11 @@ Big picture:
 - evaluation-engine
   - Pure library with deterministic bucketing and criteria evaluation
 - feature-toggle-ui (React)
-  - Vite + Apollo Client; runtime GraphQL URLs via window.ENV or defaults
+  - Vite + REST client; runtime REST URLs via window.ENV or defaults
   - Container image generates runtime config.js using env vars (BACKEND_HOST, BACKEND_PORT, BACKEND_PROTOCOL, WS_PROTOCOL)
 
 Data flow:
-- UI ↔ Backend GraphQL for admin flows and dashboards
+- UI ↔ Backend REST for admin flows and dashboards (WebSocket streams for live metrics)
 - Edge ↔ Backend gRPC for streaming feature data, evaluation, and analytics
 - Backend ↔ Postgres for durable storage, migrations, and analytics persistence
 
@@ -254,7 +252,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:local123@localhost:5432/feature_toggle
     ports:
-      - "8080:8080" # GraphQL
+      - "8080:8080" # REST API
     depends_on:
       - postgres
   ui:
@@ -288,7 +286,7 @@ Usage:
 
 Ports (host):
 - Postgres: 5433 → container 5432 (user: postgres, password: local123, db: feature_toggle — for local only)
-- Backend: 8080 (GraphQL /graphql, GraphiQL)
+- Backend: 8080 (REST /api/v1, OpenAPI /api/v1/openapi.json, /docs)
 - UI: 3000 (browse http://localhost:3000)
 
 Notes:
@@ -334,7 +332,7 @@ FluxGate features a modern, professional UI built with Material Dashboard design
 ### Key UI Features Showcased
 
 - **Material Dashboard Theme**: Gradient buttons, elevated cards, sophisticated shadow hierarchy
-- **Real-Time Dashboards**: Live metrics with 30-second updates via GraphQL subscriptions
+- **Real-Time Dashboards**: Live metrics with 30-second updates via WebSocket streams
 - **Kill Switch Monitor**: Emergency controls with countdown timers and audit trail
 - **Chart Library**: Line, Area, Bar, Pie, and Donut charts powered by Recharts
 - **Responsive Design**: Mobile-friendly with modern Material Design components
@@ -390,7 +388,7 @@ spec:
                   name: fluxgate-db
                   key: DATABASE_URL
           ports:
-            - containerPort: 8080 # HTTP GraphQL
+            - containerPort: 8080 # HTTP REST
             - containerPort: 50051 # gRPC
           # Optional: mount custom config.toml if you need to override defaults
           # volumeMounts:
@@ -534,7 +532,7 @@ spec:
     - host: api.fluxgate.example.com
       http:
         paths:
-          - path: /graphql
+          - path: /api/v1
             pathType: Prefix
             backend:
               service:
@@ -590,7 +588,7 @@ Edge (feature-edge-server):
 UI (feature-toggle-ui):
 - Container runtime env generates /usr/share/nginx/html/config.js
   - BACKEND_HOST, BACKEND_PORT, BACKEND_PROTOCOL, WS_PROTOCOL
-- Local dev (Vite): defaults to http://localhost:8080/graphql; you can inject window.ENV or adjust code to use VITE_ vars
+- Local dev (Vite): defaults to http://localhost:8080/api/v1; you can inject window.ENV or adjust code to use VITE_ vars
 
 Security notes (prod):
 - Use a managed Postgres with strong credentials and network policies
@@ -601,7 +599,7 @@ Security notes (prod):
 
 ## 8) Endpoints and ports
 
-- Backend HTTP (GraphQL): /graphql, GraphiQL enabled
+- Backend HTTP (REST): /api/v1, OpenAPI at /api/v1/openapi.json, docs at /docs
 - Backend gRPC: port 50051
 - Edge HTTP: /evaluate, /health; docs at /docs
 - UI: port 80 (container), typically published via Ingress or host 3000 for local
@@ -735,127 +733,76 @@ For more details on the OFREP specification, see the [official OFREP documentati
 
 For more API examples and integration guides, see the [Edge Server API Reference](./fluxgate.wiki/Edge-Server-API.md).
 
-### Feature Variant Operations (GraphQL)
+### Feature Variant Operations (REST)
 
-**Create Feature Variant**
-```graphql
-mutation {
-  createFeatureVariant(input: {
-    featureId: "feature-uuid-here"
-    control: "variant-a"
-    value: "{\"color\": \"blue\", \"size\": \"large\"}"
-    valueType: JSON
-    description: "Blue large button variant"
-  }) {
-    id
-    control
-    value
-    valueType
-    description
-  }
-}
+Create/update variants by updating the feature:
+
+```bash
+curl -X PATCH "http://localhost:8080/api/v1/features/<featureId>" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ \"key\": \"flag_key\", \"featureType\": \"CONTEXTUAL\", \"enabled\": true, \"dependencies\": [], \"relationships\": [], \"stages\": [], \"variants\": [{ \"control\": \"variant-a\", \"value\": {\"color\":\"blue\"}, \"valueType\": \"JSON\" }] }'
 ```
 
-**Query Feature Variants**
-```graphql
-query {
-  feature(id: "feature-uuid-here") {
-    id
-    key
-    variants {
-      id
-      control
-      value
-      valueType
-      description
-    }
-  }
-}
+Fetch variants with:
+
+```bash
+curl -H "Authorization: Bearer <token>" "http://localhost:8080/api/v1/features/<featureId>"
 ```
 
-**Update Stage Criteria with Priority and Variant**
-```graphql
-mutation {
-  updateStageCriteria(input: {
-    id: "criteria-uuid-here"
-    priority: 0
-    serve: "variant-a"
-    enabled: true
-    rolloutPercentage: 50
-  }) {
-    id
-    priority
-    serve
-    enabled
-  }
-}
+Update stage criteria via:
+
+```bash
+curl -X PUT "http://localhost:8080/api/v1/stages/<stageId>/criteria" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '[]'
 ```
 
-### Kill Switch Operations (GraphQL)
+### Kill Switch Operations (REST)
 
 **Emergency Disable Feature (with optional auto-rollback)**
-```graphql
-mutation {
-  emergencyDisableFeature(
-    id: "feature-uuid-here"
-    rollbackInMinutes: 30
-  ) {
-    id
-    key
-    killSwitchEnabled
-    killSwitchActivatedAt
-    rollbackScheduledAt
-  }
-}
+```bash
+curl -X POST "http://localhost:8080/api/v1/features/<featureId>/emergency-disable" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ \"rollbackInMinutes\": 30 }'
 ```
 
 **Emergency Enable Feature**
-```graphql
-mutation {
-  emergencyEnableFeature(id: "feature-uuid-here") {
-    id
-    key
-    killSwitchEnabled
-    killSwitchActivatedAt
-    rollbackScheduledAt
-  }
-}
+```bash
+curl -X POST "http://localhost:8080/api/v1/features/<featureId>/emergency-enable" \
+  -H "Authorization: Bearer <token>"
 ```
 
-### Real-Time Dashboard Subscriptions (GraphQL)
+### Metrics Management (REST)
 
-**Subscribe to Evaluation Rates**
-```graphql
-subscription {
-  evaluationRates(input: {
-    featureKey: "new_checkout_flow"
-    environmentId: "production"
-    intervalMinutes: 5
-    durationHours: 2
-  }) {
-    timeBucket
-    evaluationCount
-    successCount
-    successRate
-    cacheHitRate
-  }
-}
+Use `POST /api/v1/teams/{teamId}/metrics` to register KPIs that power dashboards, experiments, and alerting.
+
+```bash
+curl -X POST "http://localhost:8080/api/v1/teams/<teamId>/metrics" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ \"key\": \"page_load_ms\", \"name\": \"Page load latency\", \"description\": \"Time elapsed between request start and render completion\", \"metricType\": \"Duration\", \"unit\": \"ms\", \"successCriteria\": { \"threshold\": 200 } }'
 ```
 
-**Subscribe to Evaluation Summary**
-```graphql
-subscription {
-  evaluationSummary(input: {
-    environmentId: "production"
-    durationHours: 24
-  }) {
-    totalEvaluations
-    successfulEvaluations
-    successRate
-    cacheHitRate
-    generatedAt
-  }
-}
+After registration, list the metrics for a team via the REST endpoint to confirm the new entry and inspect the stored `successCriteria` JSON.
+
+```bash
+curl -H "Authorization: Bearer <token>" \\
+  "http://localhost:8080/api/v1/teams/<teamId>/metrics?offset=0&limit=50"
+```
+
+### Real-Time Dashboard Streams (WebSocket)
+
+Connect to the streaming endpoint and select a stream with query parameters:
+
+```text
+ws://localhost:8080/api/v1/ws?stream=evaluationRates&featureKey=new_checkout_flow&environmentId=production&intervalMinutes=5&durationHours=2
+```
+
+```text
+ws://localhost:8080/api/v1/ws?stream=evaluationSummary&environmentId=production&durationHours=24
 ```
 
 
@@ -902,9 +849,9 @@ FluxGate provides comprehensive real-time analytics and monitoring capabilities:
 - Dependency graph visualization
 - Rollout timeline with historical data
 
-### GraphQL Subscriptions
+### WebSocket Streams
 
-Real-time data streaming via GraphQL subscriptions:
+Real-time data streaming via `/api/v1/ws`:
 - `evaluationRates`: Time-bucketed evaluation metrics
 - `evaluationSummary`: Aggregated statistics
 - `evaluationDashboard`: Combined dashboard data
@@ -924,9 +871,9 @@ Real-time data streaming via GraphQL subscriptions:
 - **Backend**: log4rs configuration per service for logs
 - **Database**: Evaluation analytics persisted with time-series aggregation
 - **Edge**: /health endpoint for readiness checks
-- **Backend**: GraphQL endpoint for liveness checks
+- **Backend**: /api/v1/health for liveness checks
 - **UI**: Chart library with 5 chart types (Line, Area, Bar, Pie, Donut)
-- **Real-time**: WebSocket subscriptions with auto-reconnection
+- **Real-time**: WebSocket streams with auto-reconnection
 - **Performance**: PostgreSQL time-bucketed queries with concurrent execution
 
 **Documentation**: See [feature-toggle/DASHBOARD_IMPLEMENTATION.md](feature-toggle/DASHBOARD_IMPLEMENTATION.md) for implementation details.
@@ -937,7 +884,7 @@ Real-time data streaming via GraphQL subscriptions:
 ### Feature Documentation
 - **[Feature Variants & Priority Evaluation](#05-feature-variants--advanced-targeting)** - A/B testing with variants and ordered criteria evaluation
 - **[KILL_SWITCH_FIX_SUMMARY.md](./KILL_SWITCH_FIX_SUMMARY.md)** - Complete kill switch implementation and logic fix details
-- **[feature-toggle/DASHBOARD_IMPLEMENTATION.md](./feature-toggle/DASHBOARD_IMPLEMENTATION.md)** - Real-time analytics dashboard with GraphQL subscriptions
+- **[feature-toggle/DASHBOARD_IMPLEMENTATION.md](./feature-toggle/DASHBOARD_IMPLEMENTATION.md)** - Real-time analytics dashboard with WebSocket streams
 - **[CLUSTER_GRPC_FIX_SUMMARY.md](./CLUSTER_GRPC_FIX_SUMMARY.md)** - Cluster feature update propagation fix
 - **[CLUSTER_TESTING_GUIDE.md](./CLUSTER_TESTING_GUIDE.md)** - Multi-node cluster testing guide
 
@@ -968,4 +915,3 @@ Real-time data streaming via GraphQL subscriptions:
 ### Support & Community
 - **Issues**: Report bugs or request features via GitHub Issues
 - **Discussions**: Join community discussions on GitHub
-

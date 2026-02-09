@@ -37,7 +37,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           ports:
-            - containerPort: 8080 # HTTP GraphQL
+            - containerPort: 8080 # HTTP REST
             - containerPort: 50051 # gRPC
             - containerPort: 6000 # Cluster replication
           resources:

@@ -133,7 +133,7 @@ patches:
         path: /spec/template/spec/containers/0/livenessProbe
         value:
           httpGet:
-            path: /graphql
+            path: /api/v1/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -141,7 +141,7 @@ patches:
         path: /spec/template/spec/containers/0/readinessProbe
         value:
           httpGet:
-            path: /graphql
+            path: /api/v1/health
             port: 8080
           initialDelaySeconds: 10
           periodSeconds: 5

@@ -1,7 +1,7 @@
 import http from 'k6/http';
-import {check, sleep} from 'k6';
-import {Counter, Rate, Trend} from 'k6/metrics';
-import {randomString} from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
+import { check, sleep } from 'k6';
+import { Counter, Rate, Trend } from 'k6/metrics';
+import { randomString } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 
 // ============================================================================
 // FluxGate Edge Server OFREP - Unique Users Test
@@ -82,9 +82,9 @@ const FEATURE_KEYS = [
 
 // Environment IDs
 const ENVIRONMENT_IDS = [
-    'bf06820b-3ff6-4235-b7c6-91b27f5ef9a6',
-    '9646bb30-6bbe-48d8-89eb-a0200d4c95ce',
-    '7c7efb52-018f-4140-87ae-e42322ffa94d',
+    '4da872d1-3b16-4a2b-bbbe-d8cffa710ca3',
+    '57801f2e-b7d6-4420-8aaf-47acbfcc18fe',
+    'a2b772bf-ef8f-4f2c-a1ab-f04f6e8f045c',
 ];
 
 // User tier options for contextual features
