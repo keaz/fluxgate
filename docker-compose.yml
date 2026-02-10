@@ -6,7 +6,7 @@ services:
       - DATABASE_URL=postgres://postgres:local123@postgres:5432/feature_toggle
       - RUST_LOG=debug
     ports:
-      - "8080:8080" # GraphQL
+      - "8080:8080" # REST
     depends_on:
       - postgres
   ui:
