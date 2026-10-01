@@ -1,0 +1,104 @@
+# FluxGate Performance Test - Base Configuration
+# This file contains the base service definitions
+# Use with profile-specific compose files for resource allocation
+
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: fluxgate-perf-postgres
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgresql.conf"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-root123}
+      POSTGRES_DB: ${DB_NAME:-feature_toggle}
+    ports:
+      - "5433:5432" # Use 5433 on host to avoid conflict
+    volumes:
+      - postgres_perf_data:/var/lib/postgresql/data
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d feature_toggle && psql -U postgres -d feature_toggle -c 'SELECT 1' > /dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fluxgate-perf
+
+  # FluxGate Backend
+  backend:
+    image: keaz/flux-gate-backend:v0.0.14-alpha-arm64
+    container_name: fluxgate-perf-backend
+    restart: on-failure:10
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-feature_toggle}
+      RUST_LOG: ${BACKEND_LOG_LEVEL:-info}
+    ports:
+      - "8080:8080" # REST HTTP
+      - "50051:50051" # gRPC
+      - "6000:6000" # Cluster replication
+      - "9091:9091" # Metrics
+    volumes:
+      - ./config/backend-config.toml:/app/config/config.toml:ro
+      - ./config/backend-log4rs.yaml:/app/log4rs.yaml:ro
+    networks:
+      - fluxgate-perf
+    # Health check disabled - containers don't include pgrep
+    # Services are monitored via HTTP endpoints during tests
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pgrep -f feature-toggle-backend || exit 1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+
+  # FluxGate Edge Server
+  # Resource limits defined in profile-specific compose files
+  edge:
+    image: keaz/flux-gate-edge:v0.0.14-alpha-arm64
+    container_name: fluxgate-perf-edge
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      EDGE_CONFIG_FILE: /app/config/config.toml
+      RUST_LOG: ${EDGE_LOG_LEVEL:-info}
+    ports:
+      - "8081:8081" # HTTP evaluation endpoint
+      - "9090:9090" # Metrics
+    volumes:
+      - ./config/edge-config.toml:/app/config/config.toml:ro
+      - ./config/edge-log4rs.yaml:/app/log4rs.yaml:ro
+    networks:
+      - fluxgate-perf
+    # Health check disabled - containers don't include pgrep
+    # Edge /health endpoint is checked during tests
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pgrep -f feature-edge-server || exit 1"]
+    #   interval: 20s
+    #   timeout: 5s
+    #   retries: 3
+    #   start_period: 30s
+
+networks:
+  fluxgate-perf:
+    name: fluxgate-perf-network
+    driver: bridge
+
+volumes:
+  postgres_perf_data:
+    name: fluxgate-perf-postgres-data

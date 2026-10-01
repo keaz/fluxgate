@@ -1,0 +1,123 @@
+{
+  "info": {
+    "name": "FluxGate Performance Test",
+    "_postman_id": "fluxgate-perf-test-001",
+    "description": "Performance testing collection for FluxGate Edge Server.\n\nSupports multi-round testing with different feature counts:\n- Round 1: 100 features (use postman-data-100f.csv)\n- Round 2: 400 features (use postman-data-400f.csv)\n- Round 3: 1000 features (use postman-data-1000f.csv)\n\nAll requests use weighted Pareto distribution (80/20 rule) for realistic traffic patterns.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Evaluate Feature",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Optional: Log request for debugging",
+              "// console.log('Evaluating feature:', pm.iterationData.get('flagKey'));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Test: Response status should be 200",
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "// Test: Response should have required fields",
+              "pm.test('Response has required fields', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('flagKey');",
+              "    pm.expect(jsonData).to.have.property('value');",
+              "    pm.expect(jsonData).to.have.property('reason');",
+              "});",
+              "",
+              "// Test: Response time should be under 100ms",
+              "pm.test('Response time is acceptable', function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(100);",
+              "});",
+              "",
+              "// Optional: Track cache hits",
+              "const jsonData = pm.response.json();",
+              "if (jsonData.reason === 'CACHED') {",
+              "    pm.collectionVariables.set('cacheHits', ",
+              "        (pm.collectionVariables.get('cacheHits') || 0) + 1);",
+              "} else {",
+              "    pm.collectionVariables.set('cacheMisses', ",
+              "        (pm.collectionVariables.get('cacheMisses') || 0) + 1);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flagKey\": \"{{flagKey}}\",\n  \"context\": {\n    \"bucketingKey\": \"{{bucketingKey}}\",\n    \"environment_id\": \"{{environmentId}}\",\n    \"region\": \"{{region}}\",\n    \"tier\": \"{{tier}}\",\n    \"userRole\": \"{{userRole}}\",\n    \"deviceType\": \"{{deviceType}}\",\n    \"osType\": \"{{osType}}\",\n    \"appVersion\": \"{{appVersion}}\",\n    \"language\": \"{{language}}\",\n    \"country\": \"{{country}}\",\n    \"beta\": \"{{beta}}\",\n    \"timestamp\": \"{{timestamp}}\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{edgeUrl}}/evaluate",
+          "host": ["{{edgeUrl}}"],
+          "path": ["evaluate"]
+        },
+        "description": "Evaluate a feature flag with context.\n\nExpected response:\n```json\n{\n  \"flagKey\": \"feature=0\",\n  \"value\": true,\n  \"variant\": null,\n  \"reason\": \"STATIC\" | \"CACHED\" | \"CONTEXTUAL\",\n  \"errorCode\": null,\n  \"metadata\": null\n}\n```"
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Initialize cache tracking variables",
+          "if (!pm.collectionVariables.get('cacheHits')) {",
+          "    pm.collectionVariables.set('cacheHits', 0);",
+          "    pm.collectionVariables.set('cacheMisses', 0);",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level test summary (runs after each request)",
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "edgeUrl",
+      "value": "http://localhost:8081",
+      "type": "string"
+    },
+    {
+      "key": "cacheHits",
+      "value": "0",
+      "type": "number"
+    },
+    {
+      "key": "cacheMisses",
+      "value": "0",
+      "type": "number"
+    }
+  ]
+}

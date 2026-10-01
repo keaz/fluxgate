@@ -1,0 +1,20 @@
+# FluxGate Performance Test - Medium Profile
+# CPU: 1.0 cores (1000m), Memory: 512Mi
+# Usage: docker-compose -f docker-compose.base.yml -f docker-compose.medium.yml up
+
+version: '3.8'
+
+services:
+  edge:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'       # 2000m equivalent
+          memory: 512M
+        reservations:
+          cpus: '1.0'       # 1000m equivalent
+          memory: 256M
+    labels:
+      - "fluxgate.profile=medium"
+      - "fluxgate.cpu=1000m-2000m"
+      - "fluxgate.memory=256Mi-512Mi"

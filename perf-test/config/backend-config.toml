@@ -1,0 +1,24 @@
+# Feature Toggle Backend configuration
+
+# CORS allowed origin for the frontend
+allowed_origin = "https://fluxgate.example.com"
+
+# Address that the Actix-Web HTTP server binds to
+http_addr = "0.0.0.0:8080"
+
+# Address that the gRPC server binds to
+grpc_addr = "0.0.0.0:50051"
+
+# JWT secret for token signing and verification
+jwt_secret = "dev_jwt_secret_minimum_32_characters_long_for_development"
+
+#[cluster]
+#enabled = true
+#listen_addr = "0.0.0.0:6000"
+#reconnect_delay_ms = 2000
+
+# Database-backed peer discovery configuration
+#[cluster.discovery]
+#heartbeat_interval_secs = 30
+#stale_threshold_secs = 90
+#cleanup_interval_secs = 60

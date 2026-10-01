@@ -1,0 +1,20 @@
+# FluxGate Performance Test - Small Profile
+# CPU: 0.5 cores (500m), Memory: 256Mi
+# Usage: docker-compose -f docker-compose.base.yml -f docker-compose.small.yml up
+
+version: '3.8'
+
+services:
+  edge:
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'       # 1000m equivalent
+          memory: 256M
+        reservations:
+          cpus: '0.5'       # 500m equivalent
+          memory: 128M
+    labels:
+      - "fluxgate.profile=small"
+      - "fluxgate.cpu=500m-1000m"
+      - "fluxgate.memory=128Mi-256Mi"

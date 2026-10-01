@@ -1,0 +1,20 @@
+# FluxGate Performance Test - Large Profile
+# CPU: 2.0 cores (2000m), Memory: 1024Mi
+# Usage: docker-compose -f docker-compose.base.yml -f docker-compose.large.yml up
+
+version: '3.8'
+
+services:
+  edge:
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'       # 4000m equivalent
+          memory: 1024M
+        reservations:
+          cpus: '2.0'       # 2000m equivalent
+          memory: 512M
+    labels:
+      - "fluxgate.profile=large"
+      - "fluxgate.cpu=2000m-4000m"
+      - "fluxgate.memory=512Mi-1024Mi"

@@ -1,0 +1,38 @@
+# Edge Server Configuration
+
+# Backend gRPC server address
+backend_grpc = "http://backend:50051"
+
+# HTTP server bind address
+http_addr = "0.0.0.0:8081"
+
+# Client credentials for backend authentication
+client_id = "1c0547b8-77e7-415e-a3df-2f597a2f4c32"
+client_secret = "eIiwagopO0dFaDSfC4qtAoxCm8Jxn3f5fJtEyaXCcWwxHULG"
+
+# gRPC connection settings
+[grpc]
+connect_timeout_secs = 5
+timeout_secs = 10
+tcp_keepalive_secs = 30
+http2_keepalive_secs = 20
+keep_alive_while_idle = true
+concurrency_limit = 256
+tcp_nodelay = true
+
+# Flush settings
+[flush]
+assignment_flush_secs = 10
+evaluation_flush_secs = 30
+
+# Retry settings
+[retry]
+base_delay_ms = 500
+max_attempts = 3
+stream_initial_delay_secs = 1
+stream_max_delay_secs = 30
+
+# Cache settings
+[cache]
+max_capacity = 10000  # Max number of features to cache (LRU eviction)
+client_ttl_secs = 300  # Client info cache TTL (5 minutes)
