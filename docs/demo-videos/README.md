@@ -54,6 +54,7 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 - Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel such as cloudflared or ngrok if running locally).
 - `curl` and `jq` for videos 08, 09 and 11; Node 20 or newer for video 08.
 - Browser viewport 1440×900, light theme, zoom 100%, clean profile.
+- Type all values live at a natural pace (no pasting or autofill), except secrets, which are pasted off camera or blurred.
 - A traffic generator (internal recorder tool, not shown to viewers: a copy of the k6 load script adapted to `express-checkout` and `holiday-banner`, plus metric events; see video 15 Gotchas) run before video 15 so dashboards have data.
 - Each video lists its start state. Videos 2–15 build on each other; a seed snapshot after each chapter allows re-recording one video without redoing the chain.
 - Run `python3 docs/demo-videos/tools/check_script.py docs/demo-videos/*.md --coverage` before recording.
