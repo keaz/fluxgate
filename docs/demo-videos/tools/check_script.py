@@ -34,6 +34,10 @@ SCRIPT_NAME = re.compile(r"^(\d\d)-.+\.md$")
 FENCE = "`" * 3
 
 
+class SourceError(Exception):
+    """The UI source directory is missing or yields no routes or labels."""
+
+
 @dataclass
 class Scene:
     time: str
@@ -262,9 +266,20 @@ def script_paths(paths: list[Path]) -> list[Path]:
     return sorted(p for p in paths if SCRIPT_NAME.match(p.name))
 
 
-def lint(paths: list[Path], ui_src: Path, cli_bin: Path | None = None, coverage: bool = False) -> list[str]:
-    patterns = load_route_patterns(ui_src)
+def load_ui_sources(ui_src: Path) -> tuple[list[str], str]:
+    if not ui_src.is_dir():
+        raise SourceError(f"--ui-src {ui_src} is not a directory")
     corpus = load_ui_corpus(ui_src)
+    if not corpus.strip():
+        raise SourceError(f"no .ts/.tsx sources found under {ui_src}")
+    patterns = load_route_patterns(ui_src)
+    if not patterns:
+        raise SourceError(f"no route patterns found in {', '.join(str(ui_src / r) for r in ROUTE_FILES)}")
+    return patterns, corpus
+
+
+def lint(paths: list[Path], ui_src: Path, cli_bin: Path | None = None, coverage: bool = False) -> list[str]:
+    patterns, corpus = load_ui_sources(ui_src)
     scripts, errors = [], []
     for p in script_paths(paths):
         try:
@@ -291,7 +306,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cli-bin", type=Path)
     parser.add_argument("--coverage", action="store_true")
     args = parser.parse_args(argv)
-    errors = lint(args.paths, args.ui_src, args.cli_bin, args.coverage)
+    try:
+        errors = lint(args.paths, args.ui_src, args.cli_bin, args.coverage)
+    except SourceError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     for e in errors:
         print(e)
     if errors:

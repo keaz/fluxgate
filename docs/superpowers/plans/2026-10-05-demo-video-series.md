@@ -50,7 +50,7 @@ docs/demo-videos/
   06-create-your-first-feature.md
   07-targeting-rules.md
   08-clients-and-edge-server.md
-  09-cli-and-automation.md
+  09-automation-and-ci.md
   10-approvals-and-policies.md
   11-safety-nets.md
   12-jira-setup.md
@@ -878,7 +878,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `docs/demo-videos/08-clients-and-edge-server.md`
-- Create: `docs/demo-videos/09-cli-and-automation.md`
+- Create: `docs/demo-videos/09-automation-and-ci.md`
 
 **Interfaces:**
 - Consumes: linter, continuity rows 08–09, CLI binary from Task 2.
@@ -902,7 +902,7 @@ Beats: hook (your app asks the edge, not the backend) → `/clients` → `/clien
 
 Add a final section `## Appendix: Spring Boot (record after starter fix)` with a 60-second scene table using `fluxgate.*` properties and `FluxGateClient` from `fluxgate-springboot/README.md`, and a note that the starter currently uses the old edge contract.
 
-- [ ] **Step 3: Write `09-cli-and-automation.md`** — Length target `3:30`, section "Connect your app › CLI and CI".
+- [ ] **Step 3: Write `09-automation-and-ci.md`** — Length target `3:30`, section "Connect your app › CLI and CI".
 
 Beats: hook (flags in your terminal and pipeline) → `fluxgate login --use-device-code` → browser `/device` approve → `fluxgate whoami` → `fluxgate flags list`, `fluxgate flags get express-checkout` → CI gate snippet in a fenced block: `fluxgate evaluate express-checkout ... --exit-code` with `FLUXGATE_URL` / `FLUXGATE_TOKEN`; exit 10 means off → `/system-clients` "Create Automation Client" `ci-bot`, Token Scope, token shown as `<redacted>` → `fluxgate config export` to `fluxgate-config.json`, one line on `config import` → `fluxgate watch` stream while toggling in UI → hand-off.
 

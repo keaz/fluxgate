@@ -10,7 +10,8 @@
 #
 #   docker compose -f docker-compose.demo.yml --profile edge up -d
 #
-# Host environment variables read by this file:
+# Variables read by this file. Put them in a `.env` file next to this file;
+# docker compose reads `.env` from the project folder automatically.
 #   FLUXGATE_ENCRYPTION_KEY  required; base64 of 32 bytes (openssl rand -base64 32)
 #   TYPESAFE_API_KEY         optional; enables the AI features (video 14)
 #   EDGE_CLIENT_ID           edge profile only; client id (UUID) from the Clients page
@@ -26,6 +27,9 @@ services:
       - POSTGRES_DB=feature_toggle
     ports:
       - "5433:5432"
+    volumes:
+      # Named volume: data survives `down` and `up`; `down -v` deletes it.
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d feature_toggle"]
       interval: 5s
@@ -75,3 +79,6 @@ services:
       - "8081:8081"
     depends_on:
       - backend
+
+volumes:
+  pgdata: {}

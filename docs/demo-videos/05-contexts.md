@@ -39,7 +39,7 @@ Next: create the `express-checkout` flag, its variants and its pipeline, plus th
 
 ## Callout snippet
 
-Show this as a code card at 1:29. It is not a UI label, so it lives here instead of in the scene table.
+Show this as a code card at 1:31. It is not a UI label, so it lives here instead of in the scene table.
 
 ```json
 {

@@ -235,3 +235,39 @@ def test_bad_scene_row_raises(tmp_path):
     text = script_text().replace("| 0:00 |", "| 0:00 | extra |", 1)
     with pytest.raises(ValueError, match="scene row 1 has 5 cells"):
         cs.parse_script(Path("02-x.md"), text)
+
+
+def test_missing_ui_src_exits_2(tmp_path, capsys):
+    p = write(tmp_path, "02-demo.md", script_text())
+    assert cs.main([str(p), "--ui-src", str(tmp_path / "nope")]) == 2
+    assert "not a directory" in capsys.readouterr().err
+
+
+def test_ui_src_without_routes_exits_2(tmp_path, capsys):
+    ui = make_ui(tmp_path)
+    (ui / "App.tsx").unlink()
+    (ui / "routes" / "AppShellRoutes.tsx").unlink()
+    p = write(tmp_path, "02-demo.md", script_text())
+    assert cs.main([str(p), "--ui-src", str(ui)]) == 2
+    assert "no route patterns" in capsys.readouterr().err
+
+
+def test_ui_src_without_sources_exits_2(tmp_path, capsys):
+    ui = tmp_path / "empty"
+    ui.mkdir()
+    p = write(tmp_path, "02-demo.md", script_text())
+    assert cs.main([str(p), "--ui-src", str(ui)]) == 2
+    assert "no .ts/.tsx sources" in capsys.readouterr().err
+
+
+def test_lint_raises_source_error_for_bad_ui_src(tmp_path):
+    p = write(tmp_path, "02-demo.md", script_text())
+    with pytest.raises(cs.SourceError):
+        cs.lint([p], tmp_path / "nope")
+
+
+def test_main_ok_with_valid_ui_src(tmp_path, capsys):
+    ui = make_ui(tmp_path)
+    p = write(tmp_path, "02-demo.md", script_text())
+    assert cs.main([str(p), "--ui-src", str(ui)]) == 0
+    assert "OK: 1 scripts" in capsys.readouterr().out
