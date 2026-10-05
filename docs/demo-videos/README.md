@@ -75,13 +75,13 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 | 01 | Fresh: no install needed; concept video. | No data created. |
 | 02 | Fresh machine with Docker. | FluxGate running (backend 8080, UI 3000); edge server defined but not started (starts in 08); `admin` signed in; no team. |
 | 03 | End of 02: `admin` signed in, no team. | Team `Checkout`; users `priya` (Requester) and `sam` (Approver) in `Checkout`; `priya` has set a permanent password. |
-| 04 | End of 03: team and users exist. | Environments Development, Staging, Production; pipeline `checkout-release` (Dev → Staging → Production). |
+| 04 | End of 03: team and users exist. | Environments Development, Staging, Production; pipeline `checkout-release` (Dev → Staging → Production); approval policy `Release approvals` (All Environments, Approver role). |
 | 05 | End of 04: environments and pipeline exist. | Contexts `country` (US, CA, UK) and `user_tier` (free, plus). |
 | 06 | End of 05: contexts exist. | Feature `express-checkout` (CONTEXTUAL, kind Release, variants `classic` and `express`, pipeline `checkout-release`, no criteria); feature `holiday-banner` (SIMPLE). |
-| 07 | End of 06: features exist without criteria. | `express-checkout` criteria on Development and Staging: CA + plus → `express` (priority 1), 20/80 `express`/`classic` split (priority 2); Development stage deployed; rollout template `plus-first-then-20` saved. |
+| 07 | End of 06: features exist without criteria. | `express-checkout` criteria on Development and Staging: CA + plus → `express` (priority 1), 20/80 `express`/`classic` split (priority 2); Development stage deployed after `sam` approved; rollout template `plus-first-then-20` saved. |
 | 08 | End of 07: Development stage deployed. | Clients `checkout-service` (Backend) and `juniper-web` (Web, origin `http://localhost:5173`) on Development; evaluations recorded. |
 | 09 | End of 08: clients exist. | CLI signed in as `priya`; automation client `ci-bot` exists; config exported to `fluxgate-config.yaml`. |
-| 10 | End of 09: no approval policy yet. | Policy `Release approvals` (All Environments, Approver role); `express-checkout` deployed to Staging after `sam` approved; Production request rejected by `sam` with comment "Ship Production through CHK-142 so QA sign-off is tracked." |
+| 10 | End of 09: policy `Release approvals` exists (from 04); no approval requests beyond Development. | Policy `Release approvals` reviewed; `express-checkout` deployed to Staging after `sam` approved; Production request rejected by `sam` with comment "Ship Production through CHK-142 so QA sign-off is tracked." |
 | 11 | End of 10: Staging deployed, Production rejected. | Freeze window `Holiday freeze` created then ended (no active freeze); `holiday-banner` emergency-disabled then re-enabled; one scheduled change on `holiday-banner` cancelled; `holiday-banner` restored from Version History. |
 | 12 | End of 11: no active freeze. | Jira integration `Juniper Jira` with rules In Review → request Production, Approved → approve Production, Done → deploy Production; Jira Automation rule active; write-back connected. |
 | 13 | End of 12: Jira integration ready. | `CHK-142` linked and Done; `express-checkout` deployed to Production; FluxGate comments on `CHK-142`. |
