@@ -101,6 +101,11 @@ def test_voiceover_too_thin_is_reported(tmp_path):
     assert any("voiceover 20 words" in e for e in cs.lint([p], ui))
 
 
+def test_voiceover_curly_apostrophe_counts_as_word(tmp_path):
+    s = cs.parse_script(Path("02-x.md"), script_text(voiceover="don't stop"))
+    assert cs.voiceover_word_count(s) == 2
+
+
 def test_unknown_label_in_on_screen_is_reported(tmp_path):
     ui = make_ui(tmp_path)
     p = write(tmp_path, "02-demo.md", script_text(on_screen='Click "Make Feature".'))

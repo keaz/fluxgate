@@ -92,7 +92,7 @@ def parse_script(path: Path, text: str) -> Script:
 
 
 def voiceover_word_count(script: Script) -> int:
-    return sum(len(re.findall(r"[A-Za-z0-9''-]+", s.voiceover)) for s in script.scenes)
+    return sum(len(re.findall(r"[A-Za-z0-9'’-]+", s.voiceover)) for s in script.scenes)
 
 
 def parse_duration(value: str) -> int:
