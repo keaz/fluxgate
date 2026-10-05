@@ -50,7 +50,7 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 - Edge server on 8081 started in video 08 (`--profile edge`) with `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` from a client created in the UI.
 - Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel if running locally).
 - Browser viewport 1440×900, light theme, zoom 100%, clean profile.
-- A traffic generator (k6 script from `perf-test/` or `k6-tests/`) run before video 15 so dashboards have data.
+- A traffic generator (a copy of `k6-tests/load_test.js` adapted to `express-checkout` and `holiday-banner`, plus metric events; see video 15 Gotchas) run before video 15 so dashboards have data.
 - Each video lists its start state. Videos 2–14 build on each other; a seed snapshot after each chapter allows re-recording one video without redoing the chain.
 - CLI binary (built with `cargo build -p fluxgate-cli` in `feature-toggle-cli-followups`): `feature-toggle-cli-followups/target/debug/fluxgate`. The binary name is `fluxgate`.
 - Run `python3 docs/demo-videos/tools/check_script.py docs/demo-videos/*.md --cli-bin feature-toggle-cli-followups/target/debug/fluxgate --coverage` before recording.
@@ -87,7 +87,7 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 | 13 | End of 12: Jira integration ready. | `CHK-142` linked and Done; `express-checkout` deployed to Production; FluxGate comments on `CHK-142`. |
 | 14 | End of 13: Production deployed. | All four AI toggles on; `Release approvals` AI risk mode "Require one extra approver when high"; flags classified; a `holiday-banner` Staging request with an AI risk assessment, approved. |
 | 15 | End of 14 plus traffic generator run. | No changes. |
-| 16 | Fresh Kubernetes cluster. | FluxGate on k8s production overlay with TLS and SSO configured. |
+| 16 | Fresh production host with Docker Hub access; FluxGate not yet installed there. | Production checklist covered; SSO configured; JWT emergency actions shown. |
 
 ## Script template
 
