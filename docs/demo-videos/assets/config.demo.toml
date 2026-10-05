@@ -1,0 +1,12 @@
+# Backend configuration for the demo stack. Mounted by docker-compose.demo.yml.
+
+# CORS allowed origin for the UI
+allowed_origin = "http://localhost:3000"
+
+# Addresses the backend binds to
+http_addr = "0.0.0.0:8080"
+grpc_addr = "0.0.0.0:50051"
+
+# Public address of this backend as browsers and identity providers reach it.
+# Used to build SSO callback URLs. Leave unset on localhost.
+#public_base_url = "https://fluxgate.example.com"

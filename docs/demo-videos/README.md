@@ -44,9 +44,10 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 ## Recording setup
 
 - Backend and CLI from branch `cli-followups` (or merge it to main first). It fixes the first-admin 401 bug and the CLI build.
+- Demo stack: `docs/demo-videos/assets/docker-compose.demo.yml` (postgres, backend, ui; edge under profile `edge`) with `docs/demo-videos/assets/config.demo.toml`. Set `FLUXGATE_BACKEND_IMAGE` to a backend image built from `cli-followups` so the first-admin fix is in.
 - `FLUXGATE_ENCRYPTION_KEY` set (required for Jira write-back tokens and SSO secrets).
 - `TYPESAFE_API_KEY` set; otherwise all AI UI stays hidden.
-- Edge server running on 8081 with an edge client configured.
+- Edge server on 8081 started in video 08 (`--profile edge`) with `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` from a client created in the UI.
 - Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel if running locally).
 - Browser viewport 1440×900, light theme, zoom 100%, clean profile.
 - A traffic generator (k6 script from `perf-test/` or `k6-tests/`) run before video 15 so dashboards have data.
@@ -72,7 +73,7 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 | Video | Start state | End state |
 |---|---|---|
 | 01 | Fresh: no install needed; concept video. | No data created. |
-| 02 | Fresh machine with Docker. | FluxGate running (backend 8080, edge 8081, UI 3000); `admin` signed in; no team. |
+| 02 | Fresh machine with Docker. | FluxGate running (backend 8080, UI 3000); edge server defined but not started (starts in 08); `admin` signed in; no team. |
 | 03 | End of 02: `admin` signed in, no team. | Team `Checkout`; users `priya` (Requester) and `sam` (Approver) in `Checkout`; `priya` has set a permanent password. |
 | 04 | End of 03: team and users exist. | Environments Development, Staging, Production; pipeline `checkout-release` (Dev → Staging → Production). |
 | 05 | End of 04: environments and pipeline exist. | Contexts `country` (US, CA, UK) and `user_tier` (free, plus). |

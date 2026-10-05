@@ -1,0 +1,71 @@
+# FluxGate demo stack for the video series.
+#
+#   docker compose -f docs/demo-videos/assets/docker-compose.demo.yml up -d
+#
+# Starts postgres, backend and ui. The edge server sits behind the `edge`
+# profile because it needs the id and API key of an existing client (created
+# in the UI). Start it later with:
+#
+#   docker compose -f docs/demo-videos/assets/docker-compose.demo.yml --profile edge up -d
+#
+# Host environment variables read by this file:
+#   FLUXGATE_ENCRYPTION_KEY  required; base64 of 32 bytes (openssl rand -base64 32)
+#   TYPESAFE_API_KEY         optional; enables the AI features (video 14)
+#   EDGE_CLIENT_ID           edge profile only; client id (UUID) from the Clients page
+#   EDGE_CLIENT_SECRET       edge profile only; that client's API key
+#   FLUXGATE_BACKEND_IMAGE   optional; override to use a locally built backend image
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=local123
+      - POSTGRES_DB=feature_toggle
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d feature_toggle"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ${FLUXGATE_BACKEND_IMAGE:-keaz/flux-gate-backend:latest}
+    environment:
+      - DATABASE_URL=postgres://postgres:local123@postgres:5432/feature_toggle
+      - FLUXGATE_ENCRYPTION_KEY=${FLUXGATE_ENCRYPTION_KEY:?set FLUXGATE_ENCRYPTION_KEY (openssl rand -base64 32)}
+      - TYPESAFE_API_KEY=${TYPESAFE_API_KEY:-}
+      - RUST_LOG=info
+    ports:
+      - "8080:8080" # REST and Swagger UI at /docs
+    volumes:
+      # The entrypoint copies /app/config/config.toml to /app/config.toml.
+      - ./config.demo.toml:/app/config/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    image: keaz/flux-gate-ui:latest
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=8080
+      - BACKEND_PROTOCOL=http
+      - WS_PROTOCOL=ws
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  edge:
+    profiles: ["edge"]
+    image: keaz/flux-gate-edge:latest
+    environment:
+      - EDGE_BACKEND_GRPC=http://backend:50051
+      - EDGE_HTTP_ADDR=0.0.0.0:8081
+      - EDGE_CLIENT_ID=${EDGE_CLIENT_ID:?set EDGE_CLIENT_ID to a client id from the Clients page}
+      - EDGE_CLIENT_SECRET=${EDGE_CLIENT_SECRET:?set EDGE_CLIENT_SECRET to that client's API key}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - backend
