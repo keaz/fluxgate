@@ -19,7 +19,7 @@
 | 1:30 | Back on `/clients`, click "Create New Client". Type `juniper-web` in "Client Name", choose "Web" in "Client Type". The "Web Origins" field appears; type `http://localhost:5173`. Choose `Development` in "Environment", click "Create Client". | Now the browser app. Choose web and the form asks for web origins. The edge answers a web client only when the request comes from an origin on this list, because browsers enforce cross-origin rules. Add localhost 5173, where the storefront runs. | Highlight "Web Origins" |
 | 1:50 | Open `/developer/setup`, the "SDK Setup Wizard". Scroll to "Ready Snippets" and point at "Edge OFREP (SDK key)" and "REST Evaluate". | The setup wizard collects ready snippets. The edge OFREP one is a curl with your SDK key in the authorization header. The REST evaluate one calls the backend; the next video uses it. | Highlight "Ready Snippets" |
 | 2:05 | Terminal: run curl block B from Code on screen. The JSON response shows `express`. | First the plain evaluate endpoint. A Canadian Plus user asks for express-checkout. Always send a bucketing key, because the weighted rule uses it to place a user. The answer is express, from the first rule. This endpoint takes no credentials: it answers as the edge's own client, so keep port 8081 private. | Highlight `bucketingKey` |
-| 2:30 | Terminal: run loop block C. Output shows counts per variant. | Now twenty US free users. They skip the Canadian rule and land in the weighted split, so about one in five gets express. A given user id always gets the same answer. | Zoom on the counts |
+| 2:30 | Terminal: run loop block C. Output shows counts per variant, roughly 84 classic and 16 express. | Now a hundred US free users. They skip the Canadian rule and land in the weighted split, so about one in five gets express. A given user id always gets the same answer. | Zoom on the counts |
 | 2:45 | Terminal: run block D, then the second call with the ETag. The second response is `304 Not Modified`. | OpenFeature clients use the OFREP endpoints, which authenticate with the SDK key. The bulk call evaluates every flag in one request and returns an ETag. Send it back as if-none-match and the edge replies 304 with no body while the flags and the context are unchanged. | Highlight the `ETag` header and the 304 line |
 | 3:10 | Open `/developer/integrations`, "OpenFeature & OFREP". Point at "Compatibility Matrix". | The integrations page lists OFREP compatibility and example calls. Its token details describe the backend's own endpoints. Your apps use the SDK key against the edge. | Highlight "Compatibility Matrix" |
 | 3:22 | Editor: show `app.mjs` from Code on screen, block E. Terminal: `npm install`, then `node app.mjs`. | And the OpenFeature SDK. Install the server SDK and the OFREP provider, point the provider at the edge, and pass the SDK key as a header. Ask for the string value of express-checkout with a default of classic, and the same context. That is fifteen lines, and none of it is FluxGate specific. | Highlight the `baseUrl` line |
@@ -42,11 +42,13 @@ Next: give a CI pipeline its own identity and gate a job on a flag (video 09).
 - Client creation has no role check in the route policy (only `PATCH /clients/{id}` does, `feature-toggle-backend/src/logic/policy.rs:374`), so `priya` can create both clients. Do not click "Update Client" as `priya`.
 - Setup wizard: header "SDK Setup Wizard"; card "Ready Snippets" with blocks "REST Evaluate", "Edge OFREP (SDK key)", "Spring Boot WebClient" and "FluxGate CLI" (`DeveloperSetupWizard.tsx:498-504`). "REST Evaluate" and "Spring Boot WebClient" use the backend `/evaluate` with a system-client token, not the edge. The "FluxGate CLI" block shows a command-line tool that is not part of this series: point only at the two blocks named in the scene and do not scroll slowly past the last two. The edge snippet shows `$FLUXGATE_EDGE_URL` and `$FLUXGATE_SDK_KEY` placeholders (`:219-222`).
 - Integrations page: header "OpenFeature & OFREP"; "Compatibility Matrix", "Authentication" and "Examples" load from the backend (`fetchOfrepStatus`, `DeveloperIntegrationsPage.tsx`). Its text describes scoped tokens for the backend, which differs from the edge's SDK key auth; the voiceover says so. If the live status card shows an error, cut the scene.
-- OpenFeature provider: package `@openfeature/ofrep-provider` 0.2.5 with `@openfeature/server-sdk` 1.23.0 (checked with `npm view`; the README documents `new OFREPProvider({ baseUrl, headers })`). The package's code requests `${baseUrl}/ofrep/v1/evaluate/flags/<key>`, so `baseUrl` is the edge root without a path. The README's `headers` object form is used. Use `setProviderAndWait` so the first evaluation does not race the provider start. The script is an ES module: save it as `app.mjs`, no `package.json` setting needed. The Node run itself was not executed here; blocks A and D were run live against the v1.2.0 edge.
+- OpenFeature provider: package `@openfeature/ofrep-provider` 0.2.5 with `@openfeature/server-sdk` 1.23.0 (checked with `npm view`; the README documents `new OFREPProvider({ baseUrl, headers })`). The package's code requests `${baseUrl}/ofrep/v1/evaluate/flags/<key>`, so `baseUrl` is the edge root without a path. The README documents `headers` as a plain object, but 0.2.5 crashes on it at construction (`TypeError: programmaticHeaders is not iterable` in `mergeHeaders`), so the script passes the list-of-tuples form the README also lists: `headers: [['Authorization', ...]]`. Use `setProviderAndWait` so the first evaluation does not race the provider start. The script is an ES module: save it as `app.mjs`, no `package.json` setting needed. Block E was run live in a scratch folder (`npm init -y`, `npm install` of the two packages, `node app.mjs`) against the v1.2.0 edge with the Backend client's SDK key and printed `checkout: express`; a wrong SDK key does not fail, it silently prints `checkout: classic` (the default), so do not demo a bad key. Blocks A to D were run live as well.
 - Brief change: the brief says "second call returns 304". The API doc says the ETag covers the flag set, the client environment and the context, so repeat the call with the same context and the same SDK key, or it returns 200 again (`edge-server-api.md`, bulk endpoint). Checked live on v1.2.0 with a Backend client SDK key: the first bulk call returned 200 with an `etag` header, the repeat with `If-None-Match` set to that value returned `304 Not Modified`.
-- The 20/80 split is deterministic per bucketing key (SHA-256 of the stage bucket key and the key, `evaluation-engine/src/lib.rs:524-531`). With 20 user ids the count is near, not exactly, 4 express; read the counts on screen as they are. The voiceover says about one in five.
+- The 20/80 split is deterministic per bucketing key (SHA-256 of the stage bucket key and the key, `evaluation-engine/src/lib.rs:524-531`). Twenty ids gave 6 express and 14 classic (30 percent), too far from the narrated one in five, so block C uses 100 ids: 16 express and 84 classic on v1.2.0. The loop takes a few seconds. Read the counts on screen as they are; the voiceover says about one in five.
 - Secrets: show the API key, SDK key and `EDGE_CLIENT_SECRET` blurred or as `<redacted>` and blur the terminal when you run block A and D. Never open the committed edge `config.toml` or key files.
-- "evaluations recorded" in the end state: the edge reports evaluations to the backend. Check `/dashboard/evaluation-analytics` after recording; it is not shown in this video.
+- "evaluations recorded" in the end state: the edge reports evaluations to the backend. Checked live: `/dashboard/evaluation-analytics` shows Total Evaluations above 100 and Unique Users 100 after block C. It is not shown in this video.
+- Setup wizard as `priya`: a red `team_admin_role_required` box shows under "System Client" because only team admins list system clients. It is harmless for this scene (the snippets still load); keep the camera on "Ready Snippets" and do not scroll the left card into view. Both snippets sit in the first screen at 1440 by 900.
+- Create form: "Client Type" defaults to Web, so for `juniper-web` there is nothing to choose, and "Web Origins" is already visible; for `checkout-service` pick "Backend" first and the field disappears. A toast "Client ID copied to clipboard" shows for a few seconds after the copy button and can overlap the next form. Block D's first response has no trailing newline, hence the `echo` after the first curl.
 - Spring Boot appendix removed (public distribution): the starter is `io.github.keaz:fluxgate-spring-boot-starter` at `1.0.0-SNAPSHOT` (`fluxgate-springboot/pom.xml:14-16`, `fluxgate-springboot/README.md:23-27`). The README never says it is on Maven Central and a SNAPSHOT version is not a release, so viewers cannot depend on it; the appendix also described the old edge contract. Re-add it only after the starter is published and fixed.
 
 ## Code on screen
@@ -68,10 +70,10 @@ curl -s -X POST http://localhost:8081/evaluate \
   -d '{"flagKey":"express-checkout","context":{"bucketingKey":"user-1","country":"CA","user_tier":"plus"}}' | jq
 ```
 
-Block C: twenty US free users.
+Block C: one hundred US free users.
 
 ```bash
-for i in $(seq 1 20); do
+for i in $(seq 1 100); do
   curl -s -X POST http://localhost:8081/evaluate \
     -H 'Content-Type: application/json' \
     -d "{\"flagKey\":\"express-checkout\",\"context\":{\"bucketingKey\":\"user-$i\",\"country\":\"US\",\"user_tier\":\"free\"}}" | jq -r .variant
@@ -85,7 +87,7 @@ export FLUXGATE_SDK_KEY=<redacted>
 curl -si -X POST http://localhost:8081/ofrep/v1/evaluate/flags \
   -H "Authorization: Bearer $FLUXGATE_SDK_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"context":{"targetingKey":"user-1","country":"CA","user_tier":"plus"}}'
+  -d '{"context":{"targetingKey":"user-1","country":"CA","user_tier":"plus"}}'; echo
 curl -si -X POST http://localhost:8081/ofrep/v1/evaluate/flags \
   -H "Authorization: Bearer $FLUXGATE_SDK_KEY" \
   -H 'If-None-Match: <etag value from the first response>' \
@@ -101,7 +103,7 @@ import { OFREPProvider } from '@openfeature/ofrep-provider';
 
 await OpenFeature.setProviderAndWait(new OFREPProvider({
   baseUrl: 'http://localhost:8081',
-  headers: { Authorization: `Bearer ${process.env.FLUXGATE_SDK_KEY}` },
+  headers: [['Authorization', `Bearer ${process.env.FLUXGATE_SDK_KEY}`]],
 }));
 
 const client = OpenFeature.getClient();
