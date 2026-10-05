@@ -51,7 +51,7 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 - `TYPESAFE_API_KEY` is appended to `.env` before video 14, followed by `docker compose -f docker-compose.demo.yml up -d backend`; without it all AI UI stays hidden.
 - Edge server on 8081 started in video 08 (`--profile edge up -d edge`) after `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` from a client created in the UI (its client ID and its API key) are appended to `.env`.
 - Postgres data sits in the named volume `pgdata`: `down` and `up -d` keep it, `down -v` wipes it (use that only to reset the series).
-- Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel such as cloudflared or ngrok if running locally).
+- Jira Cloud sandbox reachable by FluxGate's public Events URL (when running locally, an ngrok tunnel: `ngrok http --host-header=localhost 8080 --pooling-enabled`). Its workflow needs the statuses `In Review`, `Approved` and `Done`, reachable from each other.
 - `curl` and `jq` for videos 08, 09 and 11; Node 20 or newer for video 08.
 - Browser viewport 1440×900, light theme, zoom 100%, clean profile.
 - Type all values live at a natural pace (no pasting or autofill), except secrets, which are pasted off camera or blurred.
