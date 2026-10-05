@@ -4,14 +4,14 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 
 ## Chapters and website sections
 
-| Chapter | Videos | Website section |
-|---|---|---|
-| 1 Get started | 01–03 | Get started |
-| 2 Model your release | 04–07 | Model your release |
-| 3 Connect your app | 08–09 | Connect your app |
-| 4 Ship safely | 10–11 | Ship safely |
-| 5 Integrations | 12–14 | Integrations |
-| 6 Observe and operate | 15–16 | Observe and operate |
+| Chapter | Videos | Titles | Website section |
+|---|---|---|---|
+| 1 Get started | 01–03 | What is FluxGate; Install and first boot; Teams, users and roles | Get started |
+| 2 Model your release | 04–07 | Environments and pipelines; Contexts; Create your first feature; Targeting rules | Model your release |
+| 3 Connect your app | 08–09 | Clients and edge server; Automation and CI | Connect your app |
+| 4 Ship safely | 10–11 | Approvals and policies; Safety nets | Ship safely |
+| 5 Integrations | 12–14 | Jira setup; Jira end to end; Jev AI assistance | Integrations |
+| 6 Observe and operate | 15–16 | Dashboards; Going to production | Observe and operate |
 
 ## Story bible
 
@@ -43,25 +43,27 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 
 ## Recording setup
 
-- Backend and CLI from branch `cli-followups` (or merge it to main first). It fixes the first-admin 401 bug and the CLI build.
-- Demo stack: `docs/demo-videos/assets/docker-compose.demo.yml` (postgres, backend, ui; edge under profile `edge`) with `docs/demo-videos/assets/config.demo.toml`. Set `FLUXGATE_BACKEND_IMAGE` to a backend image built from `cli-followups` so the first-admin fix is in.
+- Public distribution: the source repositories are private, so viewers only get the Docker Hub images and the two files from the FluxGate docs. Record exactly what a viewer can do: no source checkout, no local image builds, no branch, and no command-line tool. The `fluxgate` CLI is not part of the public videos.
+- Images: `keaz/flux-gate-backend:v1.2.0`, `keaz/flux-gate-edge:v1.2.0` and `keaz/flux-gate-ui:v1.2.0` (multi-arch amd64 and arm64; `latest` also points at v1.2.0). v1.2.0 includes the first-admin fix (no restart after "Create Admin"). Pull before recording and check the tag with `docker compose -f docker-compose.demo.yml images`.
+- Demo stack: `docs/demo-videos/assets/docker-compose.demo.yml` (postgres, backend, ui; edge under profile `edge`) with `docs/demo-videos/assets/config.demo.toml`. Copy both files into an empty folder and record from there, so the paths on screen match what a viewer types. The compose file pins the three images to `v1.2.0`; there is no build option.
+- Demo compose notes: the UI container has no proxy, so its `BACKEND_HOST` is `localhost` (the browser calls `${BACKEND_PROTOCOL}://${BACKEND_HOST}:${BACKEND_PORT}/api/v1` directly) and backend port 8080 is published; `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` default to empty so a plain `up -d` works before the edge profile is used.
 - `FLUXGATE_ENCRYPTION_KEY` set (required for Jira write-back tokens and SSO secrets).
 - `TYPESAFE_API_KEY` set; otherwise all AI UI stays hidden.
-- Edge server on 8081 started in video 08 (`--profile edge`) with `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` from a client created in the UI.
-- Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel if running locally).
+- Edge server on 8081 started in video 08 (`--profile edge`) with `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` from a client created in the UI (its client ID and its API key).
+- Jira Cloud sandbox reachable by FluxGate's public Events URL (tunnel such as cloudflared or ngrok if running locally).
+- `curl` and `jq` for videos 08, 09 and 11; Node 20 or newer for video 08.
 - Browser viewport 1440×900, light theme, zoom 100%, clean profile.
-- A traffic generator (a copy of `k6-tests/load_test.js` adapted to `express-checkout` and `holiday-banner`, plus metric events; see video 15 Gotchas) run before video 15 so dashboards have data.
+- A traffic generator (internal recorder tool, not shown to viewers: a copy of the k6 load script adapted to `express-checkout` and `holiday-banner`, plus metric events; see video 15 Gotchas) run before video 15 so dashboards have data.
 - Each video lists its start state. Videos 2–14 build on each other; a seed snapshot after each chapter allows re-recording one video without redoing the chain.
-- CLI binary (built with `cargo build -p fluxgate-cli` in `feature-toggle-cli-followups`): `feature-toggle-cli-followups/target/debug/fluxgate`. The binary name is `fluxgate`.
-- Run `python3 docs/demo-videos/tools/check_script.py docs/demo-videos/*.md --cli-bin feature-toggle-cli-followups/target/debug/fluxgate --coverage` before recording.
+- Run `python3 docs/demo-videos/tools/check_script.py docs/demo-videos/*.md --coverage` before recording.
 
 ## Before you publish
 
 | # | Issue | Effect on series | Mitigation |
 |---|---|---|---|
-| 1 | Spring Boot starter uses the old edge contract and its OpenFeature provider coerces values to boolean | Cannot demo Spring Boot today | Video 8 uses curl, OFREP, OpenFeature OFREP provider; Spring Boot segment recorded after fix |
-| 2 | First-admin bug on main: other workers return 401 until restart | Video 2 may fail live | Record from `cli-followups` |
-| 3 | CLI on main does not build from a fresh clone (`output.rs` ignored) | Video 9 blocked on main | Record from `cli-followups` |
+| 1 | Spring Boot starter uses the old edge contract, its OpenFeature provider coerces values to boolean, and it is only a `1.0.0-SNAPSHOT` that is not documented as published | Cannot demo Spring Boot | Video 8 uses curl, OFREP and the OpenFeature OFREP provider; the Spring Boot appendix is removed until the starter is fixed and published |
+| 2 | First-admin bug: other workers return 401 until restart | Video 2 may fail live | Resolved in v1.2.0 (pending image publish) |
+| 3 | CLI did not build from a fresh clone | Video 9 was blocked | Resolved in v1.2.0 (pending image publish); the CLI is also dropped from the public videos, so video 9 no longer uses it |
 | 4 | Feature Rollout dashboard has hard-coded status (`FeatureRollout.tsx:103`) | Misleading on camera | Excluded from video 15 until fixed |
 | 5 | Stale docs: root `ReadME.md` §7, `FluxGate-System-Guide.md` (GraphQL), k8s edge env names, k8s missing encryption and TypeSafe env | Viewers following docs hit errors | Fix before publishing video 2 and 16 |
 | 6 | A TLS private key and an edge client secret are committed | Must not appear on screen | Never show those files; rotate before publishing |
@@ -73,15 +75,15 @@ Produce narrative scripts for a series of short demo videos that cover FluxGate 
 | Video | Start state | End state |
 |---|---|---|
 | 01 | Fresh: no install needed; concept video. | No data created. |
-| 02 | Fresh machine with Docker. | FluxGate running (backend 8080, UI 3000); edge server defined but not started (starts in 08); `admin` signed in; no team. |
+| 02 | Fresh machine with Docker and the two demo files downloaded. | FluxGate running (backend 8080, UI 3000); edge server defined but not started (starts in 08); `admin` signed in; no team. |
 | 03 | End of 02: `admin` signed in, no team. | Team `Checkout`; users `priya` (Requester) and `sam` (Approver) in `Checkout`; `priya` has set a permanent password. |
 | 04 | End of 03: team and users exist. | Environments Development, Staging, Production; pipeline `checkout-release` (Dev → Staging → Production); approval policy `Release approvals` (All Environments, Approver role). |
 | 05 | End of 04: environments and pipeline exist. | Contexts `country` (US, CA, UK) and `user_tier` (free, plus). |
 | 06 | End of 05: contexts exist. | Feature `express-checkout` (CONTEXTUAL, kind Release, variants `classic` and `express`, pipeline `checkout-release`, no criteria); feature `holiday-banner` (SIMPLE). |
 | 07 | End of 06: features exist without criteria. | `express-checkout` criteria on Development and Staging: CA + plus → `express` (priority 1), 20/80 `express`/`classic` split (priority 2); Development stage deployed after `sam` approved; rollout template `plus-first-then-20` saved. |
 | 08 | End of 07: Development stage deployed. | Clients `checkout-service` (Backend) and `juniper-web` (Web, origin `http://localhost:5173`) on Development; evaluations recorded. |
-| 09 | End of 08: clients exist. | CLI signed in as `priya`; automation client `ci-bot` exists; config exported to `fluxgate-config.json`. |
-| 10 | End of 09: policy `Release approvals` exists (from 04); no approval requests beyond Development. | Policy `Release approvals` reviewed; `express-checkout` deployed to Staging after `sam` approved; Production request rejected by `sam` with comment `Ship Production through CHK-142 so QA sign-off is tracked.` |
+| 09 | End of 08: clients exist. | System client `ci-bot` exists with an Evaluate token saved in the terminal as `FLUXGATE_TOKEN`; `gate.sh` (curl and jq against the backend REST evaluate endpoint) exits with 10 for `holiday-banner`; signed in as `admin`. |
+| 10 | End of 09: policy `Release approvals` exists (from 04); no approval requests beyond Development; signed in as `admin`. | Policy `Release approvals` reviewed; `express-checkout` deployed to Staging after `sam` approved; Production request rejected by `sam` with comment `Ship Production through CHK-142 so QA sign-off is tracked.` |
 | 11 | End of 10: Staging deployed, Production rejected. | Freeze window `Holiday freeze` created then ended (no active freeze); `holiday-banner` Development stage deployed (approved by `sam`); `holiday-banner` emergency-disabled then re-enabled; one scheduled change on `holiday-banner` cancelled; `holiday-banner` restored from Version History. |
 | 12 | End of 11: no active freeze. | Jira integration `Juniper Jira` with rules In Review → request Production, Approved → approve Production, Done → deploy Production; Jira Automation rule active; write-back connected. |
 | 13 | End of 12: Jira integration ready. | `CHK-142` linked and Done; `express-checkout` deployed to Production; FluxGate comments on `CHK-142`. |

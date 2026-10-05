@@ -1,19 +1,22 @@
 # FluxGate demo stack for the video series.
 #
-#   docker compose -f docs/demo-videos/assets/docker-compose.demo.yml up -d
+#   docker compose -f docker-compose.demo.yml up -d
 #
-# Starts postgres, backend and ui. The edge server sits behind the `edge`
+# Download this file and config.demo.toml into one folder and run the command
+# from that folder. It starts postgres, backend and ui (images keaz/flux-gate-*
+# at v1.2.0 from Docker Hub). The edge server sits behind the `edge`
 # profile because it needs the id and API key of an existing client (created
 # in the UI). Start it later with:
 #
-#   docker compose -f docs/demo-videos/assets/docker-compose.demo.yml --profile edge up -d
+#   docker compose -f docker-compose.demo.yml --profile edge up -d
 #
 # Host environment variables read by this file:
 #   FLUXGATE_ENCRYPTION_KEY  required; base64 of 32 bytes (openssl rand -base64 32)
 #   TYPESAFE_API_KEY         optional; enables the AI features (video 14)
 #   EDGE_CLIENT_ID           edge profile only; client id (UUID) from the Clients page
 #   EDGE_CLIENT_SECRET       edge profile only; that client's API key
-#   FLUXGATE_BACKEND_IMAGE   optional; override to use a locally built backend image
+#                            Both default to empty so that `up -d` works without them;
+#                            the edge cannot reach the backend until they are set.
 services:
   postgres:
     image: postgres:15
@@ -30,7 +33,7 @@ services:
       retries: 10
 
   backend:
-    image: ${FLUXGATE_BACKEND_IMAGE:-keaz/flux-gate-backend:latest}
+    image: keaz/flux-gate-backend:v1.2.0
     environment:
       - DATABASE_URL=postgres://postgres:local123@postgres:5432/feature_toggle
       - FLUXGATE_ENCRYPTION_KEY=${FLUXGATE_ENCRYPTION_KEY:?set FLUXGATE_ENCRYPTION_KEY (openssl rand -base64 32)}
@@ -46,9 +49,12 @@ services:
         condition: service_healthy
 
   ui:
-    image: keaz/flux-gate-ui:latest
+    image: keaz/flux-gate-ui:v1.2.0
     environment:
-      - BACKEND_HOST=backend
+      # The UI has no proxy: the browser calls the backend directly at
+      # ${BACKEND_PROTOCOL}://${BACKEND_HOST}:${BACKEND_PORT}/api/v1, so this is
+      # the host name your browser uses, not the compose service name.
+      - BACKEND_HOST=localhost
       - BACKEND_PORT=8080
       - BACKEND_PROTOCOL=http
       - WS_PROTOCOL=ws
@@ -59,12 +65,12 @@ services:
 
   edge:
     profiles: ["edge"]
-    image: keaz/flux-gate-edge:latest
+    image: keaz/flux-gate-edge:v1.2.0
     environment:
       - EDGE_BACKEND_GRPC=http://backend:50051
       - EDGE_HTTP_ADDR=0.0.0.0:8081
-      - EDGE_CLIENT_ID=${EDGE_CLIENT_ID:?set EDGE_CLIENT_ID to a client id from the Clients page}
-      - EDGE_CLIENT_SECRET=${EDGE_CLIENT_SECRET:?set EDGE_CLIENT_SECRET to that client's API key}
+      - EDGE_CLIENT_ID=${EDGE_CLIENT_ID:-}
+      - EDGE_CLIENT_SECRET=${EDGE_CLIENT_SECRET:-}
     ports:
       - "8081:8081"
     depends_on:

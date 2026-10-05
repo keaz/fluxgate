@@ -18,6 +18,7 @@ def make_ui(tmp_path: Path) -> Path:
         '<Route path="/features/:id" />\n'
         '<Route path="/features/create" />\n'
         '<Route path="/dashboard/rollout" />\n'
+        '<Route path="/device" />\n'
     )
     (ui / "pages" / "Features.tsx").write_text(
         "<button>Create New Feature</button>\n<h1>OpenFeature &amp; OFREP</h1>\n"
@@ -203,6 +204,13 @@ def test_coverage_prefers_literal_route(tmp_path):
     p = write(tmp_path, "02-demo.md", script_text(on_screen="Go to `/features/create`."))
     errors = cs.lint([p], ui, coverage=True)
     assert "coverage: route `/features/:id` not shown in any script" in errors
+
+
+def test_device_route_not_required_for_coverage(tmp_path):
+    ui = make_ui(tmp_path)
+    p = write(tmp_path, "02-demo.md", script_text())
+    errors = cs.lint([p], ui, coverage=True)
+    assert not any("/device" in e for e in errors)
 
 
 def test_cli_commands_are_checked(tmp_path):

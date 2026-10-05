@@ -20,6 +20,7 @@ UNCOVERED_ROUTES = {
     "*",
     "/",
     "/auth/sso/complete",
+    "/device",  # CLI-only login page; the CLI is not in the public videos
     "/approval-policies",
     "/pipelines/:id/edit",
     "/clients/:id/edit",
