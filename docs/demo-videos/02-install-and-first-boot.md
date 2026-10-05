@@ -23,7 +23,7 @@
 | 2:16 | Browser at `http://localhost:3000`; it redirects to `/create-admin`. | Now open the UI on port 3000. With no users yet, it sends you to the create admin page. This only happens once, on a fresh database. | Highlight the URL change |
 | 2:29 | On "Create Admin Account", fill "Username" `admin`, "Password", "Confirm Password", "First Name", "Last Name", "Email", then click "Create Admin". | Fill in the form. Use admin as the username, choose a password, add a name and an email, then click create admin. This account has full control of the instance. | Blur the password fields |
 | 2:46 | Login at `/login`: fill "Username" and "Password", click "Sign in". | FluxGate returns you to the sign in page. Enter the credentials you just created and click sign in. | Blur the password field |
-| 2:57 | Land on "System Overview" at `/dashboard/overview`, mostly empty KPI cards. | You are in. The System Overview is empty because nothing exists yet: no features, no clients, no evaluations. The backend is on 8080 and the UI on 3000. The edge server on 8081 comes in video 8. | Callout: ports 8080, 3000 |
+| 2:57 | Land on "System Overview" at `/` (the sidebar highlights "Overview"), mostly empty KPI cards. | You are in. The System Overview is empty because nothing exists yet: no features, no clients, no evaluations. The backend is on 8080 and the UI on 3000. The edge server on 8081 comes in video 8. | Callout: ports 8080, 3000 |
 | 3:15 | Same page, then the "Settings" group in the sidebar. | Before you can model a release you need people to do it, and approvals need more than one of them. Next, create a team and two users. |  |
 
 ## Hand-off
