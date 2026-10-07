@@ -440,6 +440,28 @@ Issue: not filed
 
 **Suggested fix:** After a successful role or team assignment to the current user, refresh the token (or show a notice such as "Sign out and in again to apply your new role").
 
+## B19: Regenerating a system client token widens its scopes to all four
+
+Issue: not filed
+
+- **Repo:** backend (`keaz/feature-toggle`)
+- **Severity:** medium
+- **Where seen:** connect-your-app chapter run (docs site, Task 16)
+
+**Steps to reproduce**
+
+1. Sign in as `admin`, select team **Checkout**. Create the system client `ci-bot` with **Token Scope** **Evaluate** and **Metrics write** (the page defaults). The first token has exactly those two scopes.
+2. Call `POST /api/v1/system-clients/<id>/regenerate-token` with body `{}` (checked through the REST API; the UI button was not clicked).
+3. Read `tokenMeta.scopes` in the response or **Token Metadata** on the edit page.
+
+**Expected:** The regenerated token keeps the scopes of the token it replaces.
+
+**Actual:** The new token has `admin:read`, `evaluate`, `flag:write` and `metrics:write`. A CI token that could only evaluate can now write flags. The old token is revoked.
+
+**Root cause:** Not investigated. It matches the backend default of all four scopes when a request names none.
+
+**Suggested fix:** Copy the scopes of the replaced token, or require the caller to name scopes on regeneration.
+
 ## Candidates not filed
 
 | Candidate | Reason |
