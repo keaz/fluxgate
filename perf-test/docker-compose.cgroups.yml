@@ -1,0 +1,22 @@
+# FluxGate Performance Test - Named cgroup parents for container metrics
+#
+# Places each test container under a fixed cgroup parent so cAdvisor (see
+# docker-compose.monitoring.yml) can report CPU, memory and CPU throttling per
+# service without the Docker socket. Prometheus turns the cgroup path into a
+# `service` label (edge, backend, postgres).
+#
+# Usage (add before the profile file):
+#   docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml \
+#                  -f docker-compose.tiny.yml up -d
+#
+# Tested on Docker Desktop (cgroupfs driver). On Linux hosts that use the
+# systemd cgroup driver, Docker rejects these paths; skip this file there and
+# point cAdvisor at the Docker socket instead.
+
+services:
+  postgres:
+    cgroup_parent: /fluxgate-perf-postgres
+  backend:
+    cgroup_parent: /fluxgate-perf-backend
+  edge:
+    cgroup_parent: /fluxgate-perf-edge

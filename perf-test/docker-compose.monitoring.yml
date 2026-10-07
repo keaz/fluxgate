@@ -1,0 +1,109 @@
+# FluxGate Performance Test - Monitoring Stack
+#
+# Prometheus + Grafana + cAdvisor + postgres_exporter. Runs as its own compose
+# project so it keeps one continuous timeline while run-perf-tests.sh tears the
+# test stack down and redeploys it for every resource profile.
+#
+# Usage:
+#   docker-compose -f docker-compose.monitoring.yml up -d
+#   open http://localhost:3300            # Grafana (dashboard: FluxGate Performance)
+#   open http://localhost:9095            # Prometheus
+#
+# k6 pushes its metrics to Prometheus through remote write:
+#   K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9095/api/v1/write \
+#   K6_FEATURES=native-histograms \
+#   k6 run -o experimental-prometheus-rw --tag testid=my-run ../k6-tests/breakpoint-test.js
+#
+# Container metrics need the test stack started with docker-compose.cgroups.yml,
+# see that file for the reason.
+
+name: fluxgate-perf-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: fluxgate-mon-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=native-histograms"
+    ports:
+      - "${PROMETHEUS_PORT:-9095}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1
+    container_name: fluxgate-mon-grafana
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fluxgate-perf.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "${GRAFANA_PORT:-3300}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring
+
+  # cAdvisor runs in raw cgroup mode. Docker Desktop's containerd image store
+  # breaks cAdvisor's Docker integration ("failed to identify the read-write
+  # layer ID"), so containers are found through the named cgroup parents set in
+  # docker-compose.cgroups.yml instead of through the Docker socket.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: fluxgate-mon-cadvisor
+    privileged: true
+    command:
+      - "--docker_only=false"
+      - "--raw_cgroup_prefix_whitelist=/fluxgate-perf-"
+      - "--housekeeping_interval=1s"
+      - "--max_housekeeping_interval=2s"
+      - "--disable_metrics=disk,diskIO,network,tcp,udp,percpu,sched,process,hugetlb,referenced_memory,cpu_topology,resctrl,cpuset,advtcp,memory_numa"
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring
+
+  # Reaches the test database through the host port, because the test stack's
+  # network is removed and recreated for every profile.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: fluxgate-mon-postgres-exporter
+    environment:
+      DATA_SOURCE_URI: "host.docker.internal:${DB_PORT:-5433}/${DB_NAME:-feature_toggle}?sslmode=disable"
+      DATA_SOURCE_USER: postgres
+      DATA_SOURCE_PASS: ${DB_PASSWORD:-root123}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    name: fluxgate-perf-monitoring
+
+volumes:
+  prometheus_data:
+    name: fluxgate-perf-prometheus-data
+  grafana_data:
+    name: fluxgate-perf-grafana-data

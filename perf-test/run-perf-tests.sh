@@ -3,11 +3,12 @@
 # FluxGate Performance Test Automation Script (Docker Compose Version)
 #
 # This script automates the entire performance testing workflow using Docker Compose:
-# 1. Deploys each resource profile sequentially
-# 2. Runs steady-state tests at multiple load levels
-# 3. Runs stress test to find max capacity
-# 4. Collects metrics and logs
-# 5. Generates summary report
+# 1. Starts the monitoring stack (Prometheus, Grafana, cAdvisor, postgres_exporter)
+# 2. Deploys each resource profile sequentially
+# 3. Runs a breakpoint test per feature count to find the max sustainable RPS
+# 4. Runs a steady-state test at STEADY_FRACTION of that RPS
+# 5. Collects per-step CPU/memory from Prometheus, logs and k6 HTML reports
+# 6. Generates summary report
 #
 # Usage:
 #   export ENVIRONMENT_ID="your-env-id-here"
@@ -15,7 +16,10 @@
 #
 # Options:
 #   --profiles "tiny small medium"  # Test specific profiles only
+#   --features "100 1000"           # Feature counts to test (default: 100 400 1000)
+#   --steady-rps 500                # Fixed steady-state RPS instead of a share of the breakpoint
 #   --skip-deploy                   # Skip deployment (use existing)
+#   --no-monitoring                 # Skip Prometheus/Grafana, sample docker stats instead
 #   --quick                         # Run shorter tests for quick validation
 #
 
@@ -46,8 +50,24 @@ FEATURE_ROUNDS=(100 400 1000)
 # Test configuration
 SKIP_DEPLOY=false
 QUICK_MODE=false
-STEADY_TESTS=(500)
 STABILIZATION_TIME=30
+
+# Breakpoint test: step the rate from BP_START_RPS by BP_STEP_RPS up to BP_MAX_RPS
+BP_START_RPS="${BP_START_RPS:-100}"
+BP_STEP_RPS="${BP_STEP_RPS:-100}"
+BP_MAX_RPS="${BP_MAX_RPS:-5000}"
+BP_STEP_DURATION="${BP_STEP_DURATION:-60s}"
+SLO_P99_MS="${SLO_P99_MS:-50}"
+
+# Steady-state test: STEADY_RPS, or STEADY_FRACTION of the max sustainable RPS
+STEADY_RPS="${STEADY_RPS:-}"
+STEADY_FRACTION="${STEADY_FRACTION:-0.7}"
+STEADY_DURATION="${STEADY_DURATION:-10m}"
+
+# Monitoring stack (docker-compose.monitoring.yml)
+MONITORING=true
+PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9095}"
+GRAFANA_URL="${GRAFANA_URL:-http://localhost:3300}"
 
 # Colors
 RED='\033[0;31m'
@@ -68,10 +88,23 @@ while [[ $# -gt 0 ]]; do
       SKIP_DEPLOY=true
       shift
       ;;
+    --features)
+      IFS=' ' read -r -a FEATURE_ROUNDS <<< "$2"
+      shift 2
+      ;;
+    --steady-rps)
+      STEADY_RPS="$2"
+      shift 2
+      ;;
+    --no-monitoring)
+      MONITORING=false
+      shift
+      ;;
     --quick)
       QUICK_MODE=true
-      STEADY_TESTS=(500)
       STABILIZATION_TIME=10
+      BP_STEP_DURATION=20s
+      STEADY_DURATION=1m
       shift
       ;;
     --help)
@@ -79,7 +112,10 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  --profiles \"profile1 profile2\"  Test specific profiles (default: all)"
+      echo "  --features \"100 1000\"           Feature counts to test (default: ${FEATURE_ROUNDS[*]})"
+      echo "  --steady-rps N                   Fixed steady-state RPS (default: ${STEADY_FRACTION} x breakpoint)"
       echo "  --skip-deploy                    Skip deployment step"
+      echo "  --no-monitoring                  Do not start Prometheus/Grafana"
       echo "  --quick                          Run quick tests (reduced duration)"
       echo "  --help                           Show this help message"
       echo ""
@@ -87,6 +123,9 @@ while [[ $# -gt 0 ]]; do
       echo "  ENVIRONMENT_ID    (required) Environment ID for testing"
       echo "  EDGE_URL          (optional) Edge server URL (default: http://localhost:8081)"
       echo "  BACKEND_URL       (optional) Backend URL (default: http://localhost:8080)"
+      echo "  BP_START_RPS, BP_STEP_RPS, BP_MAX_RPS, BP_STEP_DURATION  Breakpoint steps (default: 100, 100, 5000, 60s)"
+      echo "  SLO_P99_MS        p99 latency SLO per step (default: 50)"
+      echo "  STEADY_FRACTION, STEADY_DURATION  Steady-state load and length (default: 0.7, 10m)"
       echo ""
       echo "Example:"
       echo "  export ENVIRONMENT_ID=\"78ccc5d7-e1bb-4e41-b6ef-02adf5c0d017\""
@@ -267,6 +306,15 @@ check_prerequisites() {
   fi
   print_success "k6 installed: $(k6 version --quiet)"
 
+  # Check jq and python3 for result processing
+  for tool in jq python3; do
+    if ! command -v "$tool" &> /dev/null; then
+      print_error "$tool not found!"
+      exit 1
+    fi
+  done
+  print_success "jq and python3 available"
+
   # Check psql for database queries
   if ! command -v psql &> /dev/null; then
     print_error "psql not found!"
@@ -295,7 +343,7 @@ deploy_profile() {
 
   # Start with specific profile
   print_msg "$BLUE" "Starting services with $profile profile..."
-  docker-compose -f docker-compose.base.yml -f docker-compose.${profile}.yml up -d
+  docker-compose $(compose_files "$profile") up -d
 
   # Wait for services to be healthy
   print_msg "$BLUE" "Waiting for services to be healthy..."
@@ -335,71 +383,132 @@ deploy_profile() {
   print_success "Profile $profile deployed"
 }
 
-# Run steady-state test
-run_steady_test() {
+# Compose files for the test stack. The cgroups overlay lets cAdvisor report
+# per-container CPU and memory (see docker-compose.cgroups.yml).
+compose_files() {
   local profile=$1
-  local rps=$2
-  local profile_dir=$3
-  local feature_count=$4
-  local round_name=$5
-
-  print_msg "$BLUE" "Running Steady State Test @ ${rps} RPS with ${feature_count} features (${round_name})..."
-
-  local test_name="steady-${rps}-${round_name}"
-  local extra_args=""
-
-  if [ "$QUICK_MODE" = true ]; then
-    extra_args="-e RAMP_UP_DURATION=30s -e STEADY_DURATION=2m -e RAMP_DOWN_DURATION=30s"
+  local files="-f docker-compose.base.yml"
+  if [ "$MONITORING" = true ]; then
+    files="$files -f docker-compose.cgroups.yml"
   fi
-
-  k6 run \
-    -e EDGE_URL="$EDGE_URL" \
-    -e ENVIRONMENT_ID="$ENVIRONMENT_ID" \
-    -e TARGET_RPS="$rps" \
-    -e TOTAL_FEATURES="$feature_count" \
-    $extra_args \
-    --out json="${profile_dir}/${test_name}-raw.json" \
-    "${K6_TESTS_DIR}/steady-state-test.js" \
-    > "${profile_dir}/${test_name}.log" 2>&1
-
-  # Copy summary if exists
-  if [ -f "summary.json" ]; then
-    mv summary.json "${profile_dir}/${test_name}-summary.json"
+  if [ -n "$profile" ]; then
+    files="$files -f docker-compose.${profile}.yml"
   fi
-
-  print_success "Steady state test @ ${rps} RPS with ${feature_count} features completed"
+  echo "$files"
 }
 
-# Run stress test
-run_stress_test() {
-  local profile=$1
-  local profile_dir=$2
-  local feature_count=$3
-  local round_name=$4
-
-  print_msg "$BLUE" "Running Stress Test with ${feature_count} features (${round_name})..."
-
-  local test_name="stress-${round_name}"
-  local extra_args=""
-  if [ "$QUICK_MODE" = true ]; then
-    extra_args="-e STAGE_DURATION=30s -e MAX_RPS=1000"
+# Start Prometheus, Grafana, cAdvisor and postgres_exporter
+start_monitoring() {
+  if [ "$MONITORING" != true ]; then
+    return
   fi
 
+  print_header "Starting Monitoring Stack"
+  docker-compose -f docker-compose.monitoring.yml up -d
+
+  local elapsed=0
+  until curl -sf "$PROMETHEUS_URL/-/ready" > /dev/null 2>&1; do
+    if [ $elapsed -ge 60 ]; then
+      print_error "Prometheus not ready at $PROMETHEUS_URL after 60s"
+      exit 1
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  print_success "Prometheus ready: $PROMETHEUS_URL"
+  print_success "Grafana dashboard: $GRAFANA_URL/d/fluxgate-perf"
+}
+
+# Run k6-tests/breakpoint-test.js
+#   run_k6 <out_dir> <test_name> <testid> <feature_count> [-e KEY=VALUE ...]
+# k6 exits with 99 when an abort threshold stops a breakpoint run; that is the
+# expected way for the run to end, so only other exit codes are reported.
+run_k6() {
+  local out_dir=$1
+  local test_name=$2
+  local testid=$3
+  local feature_count=$4
+  shift 4
+
+  local outputs=(-o web-dashboard)
+  if [ "$MONITORING" = true ]; then
+    outputs+=(-o experimental-prometheus-rw)
+  fi
+
+  local status=0
+  K6_WEB_DASHBOARD_EXPORT="${out_dir}/${test_name}-report.html" \
+  K6_WEB_DASHBOARD_PORT=-1 \
+  K6_PROMETHEUS_RW_SERVER_URL="${PROMETHEUS_URL}/api/v1/write" \
+  K6_FEATURES=native-histograms \
   k6 run \
+    "${outputs[@]}" \
+    --tag testid="$testid" \
     -e EDGE_URL="$EDGE_URL" \
     -e ENVIRONMENT_ID="$ENVIRONMENT_ID" \
     -e TOTAL_FEATURES="$feature_count" \
-    $extra_args \
-    --out json="${profile_dir}/${test_name}-raw.json" \
-    "${K6_TESTS_DIR}/stress-test.js" \
-    > "${profile_dir}/${test_name}.log" 2>&1
+    -e SLO_P99_MS="$SLO_P99_MS" \
+    -e RESULTS_DIR="$out_dir" \
+    -e TEST_NAME="$test_name" \
+    "$@" \
+    "${K6_TESTS_DIR}/breakpoint-test.js" \
+    > "${out_dir}/${test_name}.log" 2>&1 || status=$?
 
-  # Copy summary if exists
-  if [ -f "stress-test-summary.json" ]; then
-    mv stress-test-summary.json "${profile_dir}/${test_name}-summary.json"
+  if [ "$status" -ne 0 ] && [ "$status" -ne 99 ]; then
+    print_warning "k6 exited with code $status, see ${out_dir}/${test_name}.log"
   fi
 
-  print_success "Stress test with ${feature_count} features completed"
+  if [ "$MONITORING" = true ] && [ -f "${out_dir}/${test_name}.json" ]; then
+    python3 ./collect-resource-metrics.py "${out_dir}/${test_name}.json" --prometheus "$PROMETHEUS_URL" > /dev/null \
+      || print_warning "Could not add resource metrics to ${test_name}.json"
+  fi
+}
+
+# Step the load up until the edge breaks the SLO
+run_breakpoint_test() {
+  local profile=$1
+  local round_dir=$2
+  local feature_count=$3
+
+  print_msg "$BLUE" "Running breakpoint test with ${feature_count} features (${BP_START_RPS} to ${BP_MAX_RPS} RPS by ${BP_STEP_RPS}, ${BP_STEP_DURATION} per step)..."
+
+  run_k6 "$round_dir" "breakpoint" "${profile}-${feature_count}f-breakpoint" "$feature_count" \
+    -e START_RPS="$BP_START_RPS" \
+    -e STEP_RPS="$BP_STEP_RPS" \
+    -e MAX_RPS="$BP_MAX_RPS" \
+    -e STEP_DURATION="$BP_STEP_DURATION"
+
+  local max_rps
+  max_rps=$(jq -r '.maxSustainableRps // "none"' "${round_dir}/breakpoint.json" 2>/dev/null || echo "none")
+  print_success "Breakpoint test completed: max sustainable RPS = ${max_rps}"
+}
+
+# Hold a constant load: STEADY_RPS, or STEADY_FRACTION of the breakpoint
+run_steady_test() {
+  local profile=$1
+  local round_dir=$2
+  local feature_count=$3
+
+  local rps="$STEADY_RPS"
+  if [ -z "$rps" ]; then
+    local max_rps
+    max_rps=$(jq -r '.maxSustainableRps // 0' "${round_dir}/breakpoint.json" 2>/dev/null || echo 0)
+    rps=$(awk -v max="$max_rps" -v fraction="$STEADY_FRACTION" 'BEGIN { printf "%d", int(max * fraction / 10) * 10 }')
+  fi
+
+  if [ "$rps" -le 0 ]; then
+    print_warning "No sustainable RPS found, skipping steady-state test"
+    return
+  fi
+
+  print_msg "$BLUE" "Running steady-state test @ ${rps} RPS for ${STEADY_DURATION} with ${feature_count} features..."
+
+  run_k6 "$round_dir" "steady" "${profile}-${feature_count}f-steady" "$feature_count" \
+    -e START_RPS="$rps" \
+    -e STEP_RPS=0 \
+    -e MAX_RPS="$rps" \
+    -e STEP_DURATION="$STEADY_DURATION"
+
+  print_success "Steady-state test @ ${rps} RPS completed"
 }
 
 # Collect metrics and logs
@@ -461,16 +570,16 @@ run_test_round() {
 
   # Clear edge cache before each round (restart edge container)
   print_msg "$BLUE" "Clearing edge cache for fresh round..."
-  docker-compose -f docker-compose.base.yml restart edge
+  docker-compose $(compose_files "$profile") restart edge
   sleep 5  # Wait for edge to reconnect
 
-  # Run steady-state tests at different RPS levels
-  for rps in "${STEADY_TESTS[@]}"; do
-    run_steady_test "$profile" "$rps" "$round_dir" "$feature_count" "$round_name"
-  done
+  run_breakpoint_test "$profile" "$round_dir" "$feature_count"
 
-  # Run stress test
-  run_stress_test "$profile" "$round_dir" "$feature_count" "$round_name"
+  # Let the edge recover from saturation before the steady-state run
+  print_msg "$YELLOW" "Cooling down for 30 seconds..."
+  sleep 30
+
+  run_steady_test "$profile" "$round_dir" "$feature_count"
 
   print_success "Round ${round_num} (${feature_count} features) completed"
 }
@@ -493,18 +602,20 @@ run_tests_for_profile() {
   # Seed successful evaluations so analytics tables record activity
   seed_feature_evaluations "$profile"
 
-  # Start resource monitoring in background
+  # Without the monitoring stack, sample docker stats in the background
   local metrics_file="${profile_dir}/resource-metrics.csv"
   local monitor_pid=""
 
-  print_msg "$BLUE" "Starting resource monitoring (1s interval)..."
-  ./monitor-resources.sh "$metrics_file" 1 > /dev/null 2>&1 &
-  monitor_pid=$!
-  echo "$monitor_pid" > "${profile_dir}/.monitor_pid"
-  print_msg "$GREEN" "✓ Resource monitoring started (PID: $monitor_pid)"
+  if [ "$MONITORING" != true ]; then
+    print_msg "$BLUE" "Starting resource monitoring (1s interval)..."
+    ./monitor-resources.sh "$metrics_file" 1 > /dev/null 2>&1 &
+    monitor_pid=$!
+    echo "$monitor_pid" > "${profile_dir}/.monitor_pid"
+    print_msg "$GREEN" "✓ Resource monitoring started (PID: $monitor_pid)"
 
-  # Wait a moment for monitoring to initialize
-  sleep 2
+    # Wait a moment for monitoring to initialize
+    sleep 2
+  fi
 
   # Run multiple rounds with different feature counts
   local round_num=1
@@ -546,118 +657,98 @@ generate_report() {
   print_header "Generating Summary Report"
 
   local report_file="${RESULTS_DIR}/SUMMARY.md"
+  local edge_image
+  edge_image=$(grep -E "image: .*flux-gate-edge" docker-compose.base.yml | awk '{print $2}')
 
   cat > "$report_file" << EOF
-# FluxGate Performance Test Results (Docker Compose)
+# FluxGate Performance Test Results
 
 **Test Date**: $(date)
 **Environment ID**: $ENVIRONMENT_ID
-**Deployment**: Docker Compose
+
+## Test Environment
+
+- **Edge image**: ${edge_image}
+- **Docker**: $(docker version --format '{{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})' 2>/dev/null)
+- **Docker host**: $(docker info --format '{{.OperatingSystem}}, {{.NCPU}} CPUs, {{.MemTotal}} bytes memory' 2>/dev/null)
+- **Load generator**: $(k6 version --quiet 2>/dev/null | head -1), on $(uname -sm)
 
 ## Test Configuration
 
-- **Edge URL**: $EDGE_URL
-- **Backend URL**: $BACKEND_URL
-- **Profiles Tested**: ${PROFILES[*]}
-- **Feature Rounds**: ${FEATURE_ROUNDS[*]}
-- **Steady State RPS Levels**: ${STEADY_TESTS[*]}
-- **Quick Mode**: $QUICK_MODE
+- **Profiles tested**: ${PROFILES[*]}
+- **Feature counts**: ${FEATURE_ROUNDS[*]}
+- **Breakpoint steps**: ${BP_START_RPS} to ${BP_MAX_RPS} RPS by ${BP_STEP_RPS}, ${BP_STEP_DURATION} per step
+- **SLO per step**: p99 <= ${SLO_P99_MS} ms, errors <= 1%, dropped requests <= 1%
+- **Steady state**: ${STEADY_RPS:-${STEADY_FRACTION} x max sustainable RPS} for ${STEADY_DURATION}
+- **Quick mode**: $QUICK_MODE
 
-## Multi-Round Testing Strategy
+Max sustainable RPS is the highest step where every step up to it met the SLO.
+Latency and resource columns come from the steady-state run.
 
-Each profile is tested with progressive feature counts to demonstrate cache behavior:
-- **Round 1**: ${FEATURE_ROUNDS[0]} features (baseline)
-- **Round 2**: ${FEATURE_ROUNDS[1]} features (medium scale)
-- **Round 3**: ${FEATURE_ROUNDS[2]} features (full scale)
+## Results
 
-This approach shows how cache hit rates and latency change with feature set size under weighted Pareto distribution (80/20 rule).
-
-## Results by Profile
-
+| Profile | Features | Max sustainable RPS | Broke at | Steady RPS | p50 ms | p95 ms | p99 ms | Edge CPU avg / limit | Edge throttled | Edge mem max / limit |
+|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|
 EOF
 
+  local details=""
   for profile in "${PROFILES[@]}"; do
     local profile_dir="${RESULTS_DIR}/${profile}"
+    [ -d "$profile_dir" ] || continue
 
-    if [ ! -d "$profile_dir" ]; then
-      continue
-    fi
-
-    cat >> "$report_file" << EOF
-### Profile: $profile
-
-EOF
-
-    # Iterate through each round
     local round_num=1
     for feature_count in "${FEATURE_ROUNDS[@]}"; do
       local round_name="round${round_num}-${feature_count}f"
       local round_dir="${profile_dir}/${round_name}"
-
-      if [ ! -d "$round_dir" ]; then
-        round_num=$((round_num + 1))
-        continue
-      fi
-
-      cat >> "$report_file" << EOF
-#### Round ${round_num}: ${feature_count} Features
-
-EOF
-
-      # Extract metrics from steady-state tests
-      for rps in "${STEADY_TESTS[@]}"; do
-        local summary_file="${round_dir}/steady-${rps}-${round_name}-summary.json"
-
-        if [ -f "$summary_file" ] && command -v jq &> /dev/null; then
-          cat >> "$report_file" << EOF
-**Steady State @ ${rps} RPS**
-
-\`\`\`
-$(jq -r '
-  "Total Requests:    " + (.metrics.http_reqs.values.count | tostring) + "\n" +
-  "Request Rate:      " + (.metrics.http_reqs.values.rate | tostring) + " RPS\n" +
-  "P50 Latency:       " + (.metrics.http_req_duration.values["p(50)"] | tostring) + " ms\n" +
-  "P95 Latency:       " + (.metrics.http_req_duration.values["p(95)"] | tostring) + " ms\n" +
-  "P99 Latency:       " + (.metrics.http_req_duration.values["p(99)"] | tostring) + " ms\n" +
-  "Error Rate:        " + ((.metrics.http_req_failed.values.rate * 100) | tostring) + " %"
-' "$summary_file")
-\`\`\`
-
-EOF
-        fi
-      done
-
       round_num=$((round_num + 1))
-    done
+      [ -f "${round_dir}/breakpoint.json" ] || continue
 
-    echo "" >> "$report_file"
+      local steady_file="${round_dir}/steady.json"
+      [ -f "$steady_file" ] || steady_file="/dev/null"
+
+      jq -r -n \
+        --arg profile "$profile" \
+        --arg features "$feature_count" \
+        --slurpfile bp "${round_dir}/breakpoint.json" \
+        --slurpfile steady "$steady_file" '
+        def num(v; d): if v == null then "-" else (v * pow(10; d) | round / pow(10; d) | tostring) end;
+        def mib(v): if v == null then "-" else ((v / 1048576 | round | tostring) + " MiB") end;
+        ($bp[0]) as $b
+        | ($steady[0].steps[0] // {}) as $s
+        | ($s.resources.edge // {}) as $e
+        | "| \($profile) | \($features) | \($b.maxSustainableRps // "none") | "
+          + (if $b.breakingStep then "\($b.breakingStep.targetRps) RPS: \($b.breakingStep.failures | join(", "))" else "not reached" end)
+          + " | \($s.targetRps // "-") | \(num($s.latencyMs.p50; 2)) | \(num($s.latencyMs.p95; 2)) | \(num($s.latencyMs.p99; 2))"
+          + " | \(num($e.cpu_avg_cores; 2)) / \(num($e.cpu_limit_cores; 2))"
+          + " | " + (if $e.cpu_throttled_ratio == null then "-" else num($e.cpu_throttled_ratio * 100; 1) + "%" end)
+          + " | \(mib($e.memory_max_bytes)) / \(mib($e.memory_limit_bytes)) |"
+        ' >> "$report_file"
+
+      details+="- **${profile}, ${feature_count} features**: [breakpoint](${profile}/${round_name}/breakpoint.md)"
+      details+=" ([HTML report](${profile}/${round_name}/breakpoint-report.html))"
+      if [ -f "${round_dir}/steady.json" ]; then
+        details+=", [steady state](${profile}/${round_name}/steady.md)"
+        details+=" ([HTML report](${profile}/${round_name}/steady-report.html))"
+      fi
+      details+=$'\n'
+    done
   done
 
   cat >> "$report_file" << EOF
-## Expected Cache Performance by Round
 
-| Round | Features | Hot Set (20%) | Expected Hit Rate | Expected P95 |
-|-------|----------|---------------|-------------------|--------------|
-| 1 | ${FEATURE_ROUNDS[0]} | ${FEATURE_ROUNDS[0]}/5 (20 features) | ~90% | 4-6ms |
-| 2 | ${FEATURE_ROUNDS[1]} | ${FEATURE_ROUNDS[1]}/5 (80 features) | ~85% | 5-7ms |
-| 3 | ${FEATURE_ROUNDS[2]} | ${FEATURE_ROUNDS[2]}/5 (200 features) | ~82% | 6-8ms |
+## Per-step Details
 
-With weighted Pareto distribution (80/20 rule):
-- 80% of requests target the hot 20% of features
-- Hot features see high cache hit rates
-- As feature count increases, cache pressure increases slightly
-
-## Files Generated
-
-- Individual test results in \`${RESULTS_DIR}/<profile>/<round>/\`
-- Container stats and logs
-- Raw k6 JSON output per round
-
-## Docker Compose Details
-
-All tests run using Docker Compose with resource limits applied via deploy.resources configuration.
-
+${details}
+Each test directory also holds the full k6 summary (\`*-k6-summary.json\`), the k6 log,
+and per-step CPU and memory for edge, backend and postgres inside the result JSON.
 EOF
+
+  if [ "$MONITORING" = true ]; then
+    cat >> "$report_file" << EOF
+
+Live and historical graphs: ${GRAFANA_URL}/d/fluxgate-perf (select a run in the "Test run" variable).
+EOF
+  fi
 
   print_success "Summary report generated: $report_file"
   echo ""
@@ -675,6 +766,9 @@ main() {
   echo "  Results Dir:    $RESULTS_DIR"
   echo "  Profiles:       ${PROFILES[*]}"
   echo "  Feature Rounds: ${FEATURE_ROUNDS[*]}"
+  echo "  Breakpoint:     ${BP_START_RPS}..${BP_MAX_RPS} RPS by ${BP_STEP_RPS}, ${BP_STEP_DURATION}/step, SLO p99 ${SLO_P99_MS}ms"
+  echo "  Steady State:   ${STEADY_RPS:-${STEADY_FRACTION} x breakpoint} for ${STEADY_DURATION}"
+  echo "  Monitoring:     $MONITORING"
   echo "  Quick Mode:     $QUICK_MODE"
   echo "  Skip Deploy:    $SKIP_DEPLOY"
   echo "  DB Host:        ${DB_HOST}:${DB_PORT} (${DB_NAME})"
@@ -683,6 +777,8 @@ main() {
 
   # Check prerequisites
   check_prerequisites
+
+  start_monitoring
 
   # Create results directory
   mkdir -p "$RESULTS_DIR"
@@ -696,6 +792,10 @@ Edge URL: $EDGE_URL
 Backend URL: $BACKEND_URL
 Profiles: ${PROFILES[*]}
 Feature Rounds: ${FEATURE_ROUNDS[*]}
+Breakpoint: ${BP_START_RPS}..${BP_MAX_RPS} RPS by ${BP_STEP_RPS}, ${BP_STEP_DURATION} per step
+SLO p99: ${SLO_P99_MS} ms
+Steady State: ${STEADY_RPS:-${STEADY_FRACTION} x breakpoint} for ${STEADY_DURATION}
+Monitoring: $MONITORING
 Quick Mode: $QUICK_MODE
 Skip Deploy: $SKIP_DEPLOY
 Deployment: Docker Compose

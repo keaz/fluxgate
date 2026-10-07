@@ -1,0 +1,32 @@
+# Prometheus configuration for FluxGate performance tests.
+# k6 metrics arrive through remote write (/api/v1/write), not through scraping.
+
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # /fluxgate-perf-edge/<64 hex container id>  ->  service="edge"
+      - source_labels: [id]
+        regex: "/fluxgate-perf-([a-z]+)/[0-9a-f]{64}"
+        target_label: service
+        replacement: "$1"
+      # Drop the parent cgroups and anything else that is not a test container
+      - source_labels: [service]
+        regex: ""
+        action: drop
+      # The container id changes on every redeploy; keep one series per service
+      - regex: id
+        action: labeldrop
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -160,64 +160,80 @@ export ENVIRONMENT_ID="87654321-4321-4321-4321-cba987654321"
 
 ## 🧪 Running Performance Tests
 
+### Before You Start
+
+- Stop other Docker stacks (demo, docs) so they do not compete for CPU or ports 8080/8081/5433.
+- Docker Desktop's VM caps what profiles can use: with 4 CPUs, the large (4 CPU) and xlarge (8 CPU) limits are not reachable. Raise the VM CPUs or skip those profiles.
+- k6 runs on the same machine, so it shares the CPU with the services. For results you publish, run k6 from a second machine (`EDGE_URL=http://<host>:8081`) or record the machine specs next to the numbers. `SUMMARY.md` records the Docker host and k6 version.
+
 ### Automated Test Suite
 
 The `run-perf-tests.sh` script automates testing across different resource profiles.
 
 ```bash
-# Run all profiles (tiny → xlarge)
+# Run all profiles (minimal → xlarge)
 export ENVIRONMENT_ID="your-env-id"
 ./run-perf-tests.sh
 
-# Run specific profiles only
-./run-perf-tests.sh --profiles "tiny small medium"
+# Run specific profiles and feature counts only
+./run-perf-tests.sh --profiles "tiny small medium" --features "100 1000"
 
-# Quick test (shorter duration, faster results)
+# Quick test (20s breakpoint steps, 1m steady state)
 ./run-perf-tests.sh --quick
+
+# Fixed steady-state load instead of 70% of the breakpoint
+./run-perf-tests.sh --steady-rps 500
 
 # Skip deployment (use existing containers)
 ./run-perf-tests.sh --skip-deploy
+
+# Without Prometheus/Grafana (samples docker stats instead)
+./run-perf-tests.sh --no-monitoring
 ```
 
 The script:
-1. Deploys each resource profile sequentially
-2. Waits for stabilization (30s)
-3. Runs steady-state tests (default: 100 RPS)
-4. Runs stress test (ramping load from 100 to 1000 RPS)
-5. Collects metrics, logs, and container stats
-6. Saves results to `results/perf-results-<timestamp>/`
+1. Starts the monitoring stack (see [Monitoring](#-monitoring))
+2. Deploys each resource profile sequentially and waits for stabilization (30s)
+3. For each feature count (default: 100, 400, 1000):
+   - Runs a **breakpoint test**: 100 → 5000 RPS in 100 RPS steps of 60s each, stops once the edge is saturated
+   - Runs a **steady-state test** for 10 minutes at 70% of the max sustainable RPS
+   - Adds per-step CPU, memory and CPU throttling for edge, backend and postgres from Prometheus
+4. Saves results to `results/perf-results-<timestamp>/` with a `SUMMARY.md` table
 
-### Manual Testing
+Tune the runs with environment variables: `BP_START_RPS`, `BP_STEP_RPS`, `BP_MAX_RPS`, `BP_STEP_DURATION`, `SLO_P99_MS`, `STEADY_FRACTION`, `STEADY_DURATION`.
+
+### Breakpoint Test
+
+`../k6-tests/breakpoint-test.js` sends `POST /evaluate` requests for the keys `feature=10000` onwards. Each rate step is its own k6 scenario, so every step gets its own latency percentiles, error rate and dropped-request count. They are not averaged over the whole run.
+
+A step passes when it meets the SLO:
+- p99 latency ≤ `SLO_P99_MS` (default 50 ms)
+- evaluation errors ≤ 1%. A non-200 response or an `errorCode` in the body (for example `FLAG_NOT_FOUND`) counts as an error.
+- dropped requests ≤ 1%. k6 drops a request when all virtual users are busy, which means the edge cannot keep up.
+
+**Max sustainable RPS** is the last step before the first failing step. The run stops early when a step exceeds p99 1000 ms, 20% errors or 5% dropped requests. When the run ends this way, k6 exits with code 99, and the script treats it as a normal finish.
+
+The same script runs the steady-state test, as one step: `START_RPS=MAX_RPS=<rps>`, `STEP_DURATION=10m`.
 
 ```bash
-# Start services with desired profile
-docker-compose -f docker-compose.base.yml -f docker-compose.tiny.yml up -d
-
-# Run individual k6 test
+mkdir -p results/manual
 k6 run \
   -e EDGE_URL=http://localhost:8081 \
   -e ENVIRONMENT_ID=your-env-id \
-  -e TARGET_RPS=100 \
-  ../k6-tests/steady-state-test.js
-
-# View real-time stats
-docker stats fluxgate-perf-edge fluxgate-perf-backend
+  -e TOTAL_FEATURES=1000 \
+  -e START_RPS=100 -e STEP_RPS=100 -e MAX_RPS=3000 -e STEP_DURATION=60s \
+  -e RESULTS_DIR=results/manual -e TEST_NAME=tiny-breakpoint \
+  ../k6-tests/breakpoint-test.js
 ```
 
-### Test Types
+The script header lists every option. Each run writes:
 
-**Steady-State Tests** (`../k6-tests/steady-state-test.js`)
-- Constant load at specified RPS (default: 500 RPS)
-- 15-minute duration (2 minutes ramp + 10 minutes steady + 3 minutes ramp down)
-- Uses 20 VUs (Virtual Users) with max 50 VUs
-- Measures latency (p50, p95, p99) and error rate
-- Tests with 1K features (default, configurable)
-
-**Stress Tests** (`../k6-tests/stress-test.js`)
-- Ramping load from 100 → 1000 RPS (100 RPS increments every 2 minutes)
-- Uses 20 VUs (Virtual Users) with max 100 VUs
-- Identifies breaking point and resource limits
-- Tests with 1K features (default, configurable)
+| File | Content |
+|---|---|
+| `<name>.json` | Per-step results, max sustainable RPS, breaking step, resources per step |
+| `<name>.md` | The same as Markdown tables |
+| `<name>-k6-summary.json` | Full k6 end-of-test summary |
+| `<name>-report.html` | k6 web dashboard report (self-contained, shareable) |
 
 ## 🧹 Cleanup
 
@@ -252,17 +268,20 @@ docker-compose -f docker-compose.base.yml down -v
 ```
 perf-test/
 ├── docker-compose.base.yml       # Base infrastructure (postgres, backend, edge)
-├── docker-compose.minimal.yml    # 100m CPU, 64Mi RAM
-├── docker-compose.tiny.yml       # 250m CPU, 128Mi RAM (baseline)
-├── docker-compose.small.yml      # 500m CPU, 256Mi RAM
-├── docker-compose.medium.yml     # 1000m CPU, 512Mi RAM
-├── docker-compose.large.yml      # 2000m CPU, 1024Mi RAM
-├── docker-compose.xlarge.yml     # 4000m CPU, 2048Mi RAM
+├── docker-compose.cgroups.yml    # Named cgroup parents so cAdvisor can see the containers
+├── docker-compose.monitoring.yml # Prometheus, Grafana, cAdvisor, postgres_exporter
+├── docker-compose.minimal.yml    # Edge limit 0.25 CPU, 64Mi RAM
+├── docker-compose.tiny.yml       # Edge limit 0.5 CPU, 128Mi RAM (baseline)
+├── docker-compose.small.yml      # Edge limit 1 CPU, 256Mi RAM
+├── docker-compose.medium.yml     # Edge limit 2 CPU, 512Mi RAM
+├── docker-compose.large.yml      # Edge limit 4 CPU, 1024Mi RAM
+├── docker-compose.xlarge.yml     # Edge limit 8 CPU, 2048Mi RAM
 ├── populate-data.js              # Single-threaded test data generation
 ├── populate-data-mt.js           # Multi-threaded test data generation
 ├── populate-data-worker.js       # Worker thread for multi-threaded generation
 ├── cleanup-data.sh               # Clean test data from database
 ├── run-perf-tests.sh             # Automated test execution
+├── collect-resource-metrics.py   # Adds per-step CPU/memory from Prometheus to a result
 ├── verify-setup.sh               # Setup verification
 ├── init-edge-client.js           # Initialize edge server credentials
 ├── .env.example                  # Environment variables template
@@ -271,6 +290,10 @@ perf-test/
 │   ├── backend-config.toml       # Backend configuration
 │   ├── backend-log4rs.yaml       # Backend logging
 │   └── edge-config.toml          # Edge configuration
+├── monitoring/
+│   ├── prometheus.yml            # Scrape config (cAdvisor, postgres_exporter)
+│   ├── generate-dashboard.py     # Source of the Grafana dashboard JSON
+│   └── grafana/                  # Provisioned datasource and dashboard
 └── results/                      # Test results directory
     └── perf-results-<timestamp>/ # Results for each test run
 ```
@@ -311,9 +334,11 @@ All services are directly accessible on localhost:
 - **Backend API**: http://localhost:8080/api/v1
 - **Backend gRPC**: localhost:50051
 - **Edge Evaluation**: http://localhost:8081/evaluate
-- **PostgreSQL**: localhost:5432
-- **Backend Metrics**: http://localhost:9091/metrics (if exposed)
-- **Edge Metrics**: http://localhost:9090/metrics (if exposed)
+- **PostgreSQL**: localhost:5433
+- **Grafana**: http://localhost:3300 (monitoring stack)
+- **Prometheus**: http://localhost:9095 (monitoring stack)
+
+Ports 9090/9091 are mapped for edge and backend metrics, but the services do not serve a Prometheus `/metrics` endpoint yet.
 
 ### Running Tests
 
@@ -344,15 +369,52 @@ export ENVIRONMENT_ID="your-env-id"
 # Start services
 docker-compose -f docker-compose.base.yml -f docker-compose.tiny.yml up -d
 
-# Run individual k6 test
+# Steady state: one 10 minute step at 500 RPS
+mkdir -p results/manual
 k6 run \
   -e EDGE_URL=http://localhost:8081 \
   -e ENVIRONMENT_ID=your-env-id \
-  -e TARGET_RPS=500 \
-  ../k6-tests/steady-state-test.js
+  -e START_RPS=500 -e MAX_RPS=500 -e STEP_RPS=0 -e STEP_DURATION=10m \
+  -e RESULTS_DIR=results/manual -e TEST_NAME=tiny-steady-500 \
+  ../k6-tests/breakpoint-test.js
 ```
 
 ## 📈 Monitoring
+
+### Prometheus and Grafana
+
+`run-perf-tests.sh` starts the monitoring stack automatically. To use it by hand:
+
+```bash
+docker-compose -f docker-compose.monitoring.yml up -d
+
+# The test stack needs the cgroups overlay so cAdvisor can report its containers
+docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml -f docker-compose.tiny.yml up -d
+
+# Stream k6 metrics into Prometheus, tagged with a run id
+K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9095/api/v1/write K6_FEATURES=native-histograms \
+  k6 run -o experimental-prometheus-rw --tag testid=tiny-manual ../k6-tests/breakpoint-test.js
+
+# Add per-step CPU/memory to the result file
+./collect-resource-metrics.py results/manual/tiny-manual.json
+```
+
+Open http://localhost:3300 (anonymous read access; admin login `admin`/`admin`). The **FluxGate Performance** dashboard shows:
+
+| Section | Metrics | Source |
+|---|---|---|
+| Load and latency | Achieved, failed and dropped RPS; p50/p90/p95/p99/p99.9 latency; p99 per step; active VUs | k6 remote write (native histograms) |
+| Containers | CPU cores used vs limit, CPU throttling, memory working set vs limit, OOM kills | cAdvisor |
+| PostgreSQL | Commits, rows written, connections, buffer cache hit ratio | postgres_exporter |
+
+Pick a run in the **Test run** variable (`<profile>-<features>f-breakpoint` or `-steady`). To change the dashboard, edit `monitoring/generate-dashboard.py` and run it; do not edit the JSON by hand.
+
+cAdvisor runs in raw cgroup mode, because Docker Desktop's containerd image store breaks its Docker integration. `docker-compose.cgroups.yml` puts each test container under a fixed cgroup (`/fluxgate-perf-edge` etc.), and Prometheus turns that into a `service` label. On Linux hosts with the systemd cgroup driver, Docker rejects these cgroup paths.
+
+```bash
+# Stop the monitoring stack; add -v to also delete the stored metrics
+docker-compose -f docker-compose.monitoring.yml down
+```
 
 ### View Logs
 ```bash
