@@ -40,6 +40,7 @@ recording) and the metric toast quote style (docs wording only).
 | B16 | Pipelines list "Description" column shows the Active/Disabled status | UI | low | [keaz/feature-toggle-ui#16](https://github.com/keaz/feature-toggle-ui/issues/16) |
 | B17 | SDK Setup Wizard shows the raw error code `team_admin_role_required` | UI | low | [keaz/feature-toggle-ui#17](https://github.com/keaz/feature-toggle-ui/issues/17) |
 | B18 | A role assigned to the signed-in user has no effect until the next sign-in | UI | low | not filed |
+| B20 | Feature `evaluation_count_7d` is never updated, so approvals and the feature page show 0 evaluations | Backend | medium | not filed |
 
 ## B01: Header team selector does not show a new team until the page is reloaded
 
@@ -461,6 +462,29 @@ Issue: not filed
 **Root cause:** Not investigated. It matches the backend default of all four scopes when a request names none.
 
 **Suggested fix:** Copy the scopes of the replaced token, or require the caller to name scopes on regeneration.
+
+## B20: Feature evaluation count for the last 7 days is never updated
+
+Issue: not filed
+
+- **Repo:** backend (`keaz/feature-toggle`)
+- **Severity:** medium
+- **Where seen:** docs site final review (2026-10-07), on `v1.2.0`, with live traffic through the edge server
+
+**Steps to reproduce**
+
+1. Sign in as `admin`, select team **Checkout**. Start the edge server with the `checkout-service` client and deploy `express-checkout` to Development.
+2. Send evaluations for `express-checkout` through the edge server, for example 100 OFREP calls with different `targetingKey` values. **Evaluation Analytics** (`/dashboard/evaluation-analytics`) shows them in **Total Evaluations**.
+3. Open `express-checkout` at `/features/<id>` and read the **Evaluations 7D** tile.
+4. As `priya`, request a stage change for `express-checkout`. As `sam`, open the request on the **Approvals** page and read its details.
+
+**Expected:** The **Evaluations 7D** tile and the approval details show the number of evaluations from the last 7 days, and the impact estimate uses it.
+
+**Actual:** The feature's `evaluation_count_7d` value stays at `0`. The **Evaluations 7D** tile always shows 0. Every approval request shows "0 evaluations in 7d" and the warning "No recent traffic data is available; impact estimate may be incomplete", for every feature, even with live traffic.
+
+**Root cause:** Not investigated. **Evaluation Analytics** shows the same traffic, so the telemetry reaches the backend; only the 7-day count on the feature is not refreshed.
+
+**Suggested fix:** Refresh `evaluation_count_7d` from the evaluation telemetry (for example on flush or on a schedule), or compute it on read for the feature page and approval details.
 
 ## Candidates not filed
 
