@@ -51,6 +51,9 @@ def query(prometheus, expr, at):
 def step_resources(prometheus, service, start, end):
     window = int(end - start)
     if window < 2:
+        # Short (aborted) step: use the whole step instead of skipping the start
+        window = int(end - start + SETTLE_SECS)
+    if window < 2:
         return None
     sel = f'service="{service}"'
     w = f"{window}s"

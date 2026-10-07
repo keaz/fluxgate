@@ -1,6 +1,10 @@
 # FluxGate Performance Test - Base Configuration
 # This file contains the base service definitions
 # Use with profile-specific compose files for resource allocation
+#
+# Host ports can be changed with DB_PORT, BACKEND_HTTP_PORT, BACKEND_GRPC_PORT,
+# BACKEND_CLUSTER_PORT, BACKEND_METRICS_PORT, EDGE_HTTP_PORT and EDGE_METRICS_PORT
+# to run next to another FluxGate stack.
 
 version: "3.8"
 
@@ -18,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-root123}
       POSTGRES_DB: ${DB_NAME:-feature_toggle}
     ports:
-      - "5433:5432" # Use 5433 on host to avoid conflict
+      - "${DB_PORT:-5433}:5432" # Use 5433 on host to avoid conflict
     volumes:
       - postgres_perf_data:/var/lib/postgresql/data
       - ./config/postgresql.conf:/etc/postgresql/postgresql.conf:ro
@@ -37,7 +41,7 @@ services:
 
   # FluxGate Backend
   backend:
-    image: keaz/flux-gate-backend:v0.0.14-alpha-arm64
+    image: keaz/flux-gate-backend:${FLUXGATE_VERSION:-v1.2.0}
     container_name: fluxgate-perf-backend
     restart: on-failure:10
     depends_on:
@@ -46,11 +50,13 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-root123}@postgres:5432/${DB_NAME:-feature_toggle}
       RUST_LOG: ${BACKEND_LOG_LEVEL:-info}
+      # base64 of 32 bytes: openssl rand -base64 32
+      FLUXGATE_ENCRYPTION_KEY: ${FLUXGATE_ENCRYPTION_KEY:?set FLUXGATE_ENCRYPTION_KEY (openssl rand -base64 32)}
     ports:
-      - "8080:8080" # REST HTTP
-      - "50051:50051" # gRPC
-      - "6000:6000" # Cluster replication
-      - "9091:9091" # Metrics
+      - "${BACKEND_HTTP_PORT:-8080}:8080" # REST HTTP
+      - "${BACKEND_GRPC_PORT:-50051}:50051" # gRPC
+      - "${BACKEND_CLUSTER_PORT:-6000}:6000" # Cluster replication
+      - "${BACKEND_METRICS_PORT:-9091}:9091" # Metrics
     volumes:
       - ./config/backend-config.toml:/app/config/config.toml:ro
       - ./config/backend-log4rs.yaml:/app/log4rs.yaml:ro
@@ -68,7 +74,7 @@ services:
   # FluxGate Edge Server
   # Resource limits defined in profile-specific compose files
   edge:
-    image: keaz/flux-gate-edge:v0.0.14-alpha-arm64
+    image: keaz/flux-gate-edge:${FLUXGATE_VERSION:-v1.2.0}
     container_name: fluxgate-perf-edge
     restart: unless-stopped
     depends_on:
@@ -78,8 +84,8 @@ services:
       EDGE_CONFIG_FILE: /app/config/config.toml
       RUST_LOG: ${EDGE_LOG_LEVEL:-info}
     ports:
-      - "8081:8081" # HTTP evaluation endpoint
-      - "9090:9090" # Metrics
+      - "${EDGE_HTTP_PORT:-8081}:8081" # HTTP evaluation endpoint
+      - "${EDGE_METRICS_PORT:-9090}:9090" # Metrics
     volumes:
       - ./config/edge-config.toml:/app/config/config.toml:ro
       - ./config/edge-log4rs.yaml:/app/log4rs.yaml:ro

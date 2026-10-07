@@ -64,19 +64,20 @@ else
     exit 1
 fi
 
-# Check if both use v0.0.11-alpha-arm64
+# Check that both use the expected version (FLUXGATE_VERSION, default v1.2.0)
+EXPECTED_VERSION="${FLUXGATE_VERSION:-v1.2.0}"
 echo ""
 echo -e "${CYAN}Checking image versions...${NC}"
-if [[ "$BACKEND_IMAGE" != *"v0.0.11-alpha-arm64"* ]]; then
-    echo -e "${YELLOW}⚠ Backend not using v0.0.11-alpha-arm64${NC}"
+if [[ "$BACKEND_IMAGE" != *":$EXPECTED_VERSION" ]]; then
+    echo -e "${YELLOW}⚠ Backend not using $EXPECTED_VERSION${NC}"
 else
-    echo -e "${GREEN}✓ Backend using v0.0.11-alpha-arm64${NC}"
+    echo -e "${GREEN}✓ Backend using $EXPECTED_VERSION${NC}"
 fi
 
-if [[ "$EDGE_IMAGE" != *"v0.0.11-alpha-arm64"* ]]; then
-    echo -e "${YELLOW}⚠ Edge not using v0.0.11-alpha-arm64${NC}"
+if [[ "$EDGE_IMAGE" != *":$EXPECTED_VERSION" ]]; then
+    echo -e "${YELLOW}⚠ Edge not using $EXPECTED_VERSION${NC}"
 else
-    echo -e "${GREEN}✓ Edge using v0.0.11-alpha-arm64${NC}"
+    echo -e "${GREEN}✓ Edge using $EXPECTED_VERSION${NC}"
 fi
 
 # Check resource limits

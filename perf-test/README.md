@@ -17,15 +17,14 @@ Complete performance benchmarking setup using Docker Compose for easy local test
 
 ## ⚙️ Default Configuration
 
-The performance tests are configured with the following defaults:
+The tests run FluxGate `v1.2.0` images by default (`FLUXGATE_VERSION` changes the tag) with these defaults:
 
-- **Total Features**: 1,000 features
-- **Target RPS**: 500 requests per second
-- **Virtual Users (VUs)**: 20 (max 50 for steady-state, max 100 for stress tests)
-- **Test Duration**: 15 minutes per steady-state test (2m ramp + 10m steady + 3m ramp down)
-- **Stress Test**: Ramps from 100 RPS to 1000 RPS in 100 RPS increments
+- **Features**: 1,000 deployed features (`feature=10000` to `feature=10999`), 700 boolean and 300 with variants
+- **Breakpoint test**: 100 → 5,000 RPS in 100 RPS steps of 60s, per profile and feature count (100, 400, 1000)
+- **Steady-state test**: 10 minutes at 70% of the breakpoint, on a freshly restarted edge
+- **SLO per step**: p99 ≤ 50 ms, errors < 1%, dropped requests < 1%
 
-All values can be customized via environment variables (see test files for details).
+All values can be changed with environment variables (`./run-perf-tests.sh --help`).
 
 ## 🚀 Quick Start
 
@@ -33,50 +32,66 @@ All values can be customized via environment variables (see test files for detai
 ```bash
 cd perf-test
 
-# Start postgres and backend first
-docker-compose -f docker-compose.base.yml up -d postgres backend
+# The v1.2.0 backend needs an encryption key (base64 of 32 bytes)
+export FLUXGATE_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
-# Wait for backend to be ready (30 seconds)
-sleep 30
+# Start postgres and backend first
+docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml up -d postgres backend
+```
+
+Keep `FLUXGATE_ENCRYPTION_KEY` exported in the shell that runs `run-perf-tests.sh`: the script recreates the backend for every profile.
+
+To run next to another FluxGate stack, move the host ports and point the scripts at them:
+
+```bash
+export DB_PORT=15433 BACKEND_HTTP_PORT=18080 EDGE_HTTP_PORT=18081
+export BACKEND_URL=http://localhost:18080 REST_HTTP_URL=http://localhost:18080/api/v1 EDGE_URL=http://localhost:18081
 ```
 
 ### 2. Initialize Edge Server Client
 ```bash
-# Create client credentials for edge server
 node init-edge-client.js
 
 # This will:
-# - Create admin user if needed
-# - Create a team for performance testing
-# - Create a client for the edge server
-# - Update edge-config.toml with the credentials
+# - Create the admin user if needed
+# - Create the "Performance Test Team" and its "Perf-Test-Prod" environment
+# - Create a backend client for that environment
+# - Update config/edge-config.toml with the client credentials
+# Save the Environment ID from the output
+export ENVIRONMENT_ID="your-env-id-from-output"
 ```
 
 ### 3. Start Edge Server
 ```bash
-# Now start edge server with client credentials
-docker-compose -f docker-compose.base.yml -f docker-compose.tiny.yml up -d edge
-
-# Verify setup
-./verify-setup.sh
+docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml -f docker-compose.tiny.yml up -d edge
 ```
 
 ### 4. Generate Test Data
 ```bash
-# Multi-threaded (recommended) - much faster!
-node populate-data-mt.js --features=1000 --threads=8
+# 1,000 features named feature=10000 .. feature=10999, the keys the tests use
+node populate-data.js --features=1000 --start=10000
 
-# Or single-threaded
-node populate-data.js --features=1000
-
-# Save the Environment ID from output
-export ENVIRONMENT_ID="your-env-id-from-output"
+# Give every stage a targeting rule so evaluations do real rule matching
+node evaluate-features.js --features=1000 --evals=2
 ```
+
+`populate-data.js` also creates a `perf-approver` user: deployments to the perf environment need an approval from someone other than the requester.
 
 ### 5. Run Performance Tests
 ```bash
-./run-perf-tests.sh
+./run-perf-tests.sh --profiles "minimal tiny small medium large"
 ```
+
+The xlarge profile limits the edge to 8 CPUs; Docker refuses to start it when the Docker Desktop VM has fewer.
+
+### 6. Build Charts for the Site
+```bash
+./generate-site-charts.py results/perf-results-<timestamp> --prometheus http://localhost:9095
+./capture-grafana.sh results/perf-results-<timestamp>/small/round3-1000f/breakpoint.json \
+  small-1000f-breakpoint results/perf-results-<timestamp>/site/grafana/small-breakpoint
+```
+
+This writes light and dark SVG charts and `perf-summary.{json,csv,md}` to `results/perf-results-<timestamp>/site/`, plus Grafana screenshots taken with headless Chrome.
 
 ## 📊 Test Data Generation
 
@@ -282,6 +297,8 @@ perf-test/
 ├── cleanup-data.sh               # Clean test data from database
 ├── run-perf-tests.sh             # Automated test execution
 ├── collect-resource-metrics.py   # Adds per-step CPU/memory from Prometheus to a result
+├── generate-site-charts.py       # Site charts (SVG) and summary tables from a results directory
+├── capture-grafana.sh            # Grafana dashboard screenshots for one test run
 ├── verify-setup.sh               # Setup verification
 ├── init-edge-client.js           # Initialize edge server credentials
 ├── .env.example                  # Environment variables template
@@ -561,7 +578,7 @@ Run the verification script to check setup:
 
 This checks:
 - ✓ Docker services running
-- ✓ Image versions (v0.0.11-alpha-arm64)
+- ✓ Image versions (`FLUXGATE_VERSION`, default v1.2.0)
 - ✓ Resource limits applied
 - ✓ gRPC connection established
 - ✓ Ports accessible
@@ -587,13 +604,13 @@ results/perf-results-20251108-163000/
 
 ## 🔄 Workflow
 
-1. **Start Services**: `docker-compose -f docker-compose.base.yml up -d postgres backend`
+1. **Start Services**: `docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml up -d postgres backend` (with `FLUXGATE_ENCRYPTION_KEY` set)
 2. **Initialize Client**: `node init-edge-client.js`
-3. **Start Edge**: `docker-compose -f docker-compose.base.yml -f docker-compose.tiny.yml up -d edge`
+3. **Start Edge**: `docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml -f docker-compose.tiny.yml up -d edge`
 4. **Verify Setup**: `./verify-setup.sh`
-5. **Generate Data**: `node populate-data-mt.js --features=1000 --threads=8`
+5. **Generate Data**: `node populate-data.js --features=1000 --start=10000`, then `node evaluate-features.js --features=1000 --evals=2`
 6. **Run Tests**: `ENVIRONMENT_ID=xxx ./run-perf-tests.sh`
-7. **Analyze Results**: Review `results/perf-results-*/SUMMARY.md`
+7. **Analyze Results**: Review `results/perf-results-*/SUMMARY.md`, build charts with `./generate-site-charts.py`
 8. **Cleanup**: `./cleanup-data.sh` (optional, to remove test data)
 9. **Stop Services**: `docker-compose -f docker-compose.base.yml down`
 

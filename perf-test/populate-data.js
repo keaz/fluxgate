@@ -30,6 +30,11 @@ const ROLE_IDS = {
 };
 
 const TEAM_NAME = 'Performance Test Team';
+
+// Deployments to the perf environment need an approval from a user other than
+// the requester, so a dedicated approver account is created in the team.
+const APPROVER_USERNAME = 'perf-approver';
+const APPROVER_PASSWORD = process.env.APPROVER_PASSWORD || 'PerfApprover123!';
 const PIPELINE_NAME = 'Perf-Test-Pipeline';
 const ENVIRONMENT_NAME = 'Perf-Test-Prod';
 const APPROVAL_POLICY_NAME = 'Perf Test Deploy Policy';
@@ -305,37 +310,65 @@ async function createPipeline(token, team, environment) {
   return { id: created.id, environmentId: environment.id };
 }
 
-async function deployFeatureStage(token, stageId) {
-  let pendingId = null;
+async function ensureApprover(token, teamId) {
+  logStep(`Ensuring approver user ${APPROVER_USERNAME}...`);
 
+  let userId = null;
   try {
-    const request = await apiJson(`/stages/${stageId}/request-change`, {
+    const created = await apiJson('/users', {
       method: 'POST',
       token,
-      body: { request: 'DEPLOYMENT_REQUESTED' },
+      body: {
+        username: APPROVER_USERNAME,
+        password: APPROVER_PASSWORD,
+        firstName: 'Perf',
+        lastName: 'Approver',
+        email: 'perf-approver@fluxgate.io',
+        isTemporaryPassword: false,
+      },
     });
-    pendingId = request.pendingApprovalRequestId || null;
+    userId = created.id;
   } catch (error) {
-    if (error.status !== 400) throw error;
+    if (error.status !== 409) throw error;
   }
 
+  if (userId) {
+    await apiJson(`/users/${userId}/teams`, { method: 'POST', token, body: { teamIds: [teamId] } });
+    await apiJson(`/users/${userId}/roles`, { method: 'POST', token, body: { roleIds: [ROLE_IDS.approver] } });
+    logSuccess(`Created approver: ${APPROVER_USERNAME}`);
+  } else {
+    logSuccess(`Using existing approver: ${APPROVER_USERNAME}`);
+  }
+
+  const data = await apiJson('/auth/login', {
+    method: 'POST',
+    body: { username: APPROVER_USERNAME, password: APPROVER_PASSWORD },
+  });
+  return data.token;
+}
+
+// NOT_DEPLOYED -> DEPLOYMENT_REQUESTED (admin) -> DEPLOYMENT_APPROVED (approver) -> DEPLOYED (admin)
+async function deployFeatureStage(token, approverToken, stageId) {
+  const request = await apiJson(`/stages/${stageId}/request-change`, {
+    method: 'POST',
+    token,
+    body: { request: 'DEPLOYMENT_REQUESTED' },
+  });
+
+  const pendingId = request.pendingApprovalRequestId || null;
   if (pendingId) {
     await apiJson(`/approval-requests/${pendingId}/approve`, {
       method: 'POST',
-      token,
+      token: approverToken,
       body: { comment: 'Auto-approved by perf seed' },
     });
   }
 
-  try {
-    await apiJson(`/stages/${stageId}/request-change`, {
-      method: 'POST',
-      token,
-      body: { request: 'DEPLOYED' },
-    });
-  } catch (error) {
-    if (error.status !== 400) throw error;
-  }
+  await apiJson(`/stages/${stageId}/request-change`, {
+    method: 'POST',
+    token,
+    body: { request: 'DEPLOYED' },
+  });
 }
 
 async function createFeature(token, team, pipeline, index, isContextual = false) {
@@ -386,7 +419,7 @@ async function createFeature(token, team, pipeline, index, isContextual = false)
   return { featureId: feature.id, stageId };
 }
 
-async function createFeatures(token, team, pipeline) {
+async function createFeatures(token, approverToken, team, pipeline) {
   logStep(`Creating ${TOTAL_FEATURES.toLocaleString()} features...`);
   logStep(`Starting from index: ${START_INDEX}`, true);
 
@@ -396,7 +429,7 @@ async function createFeatures(token, team, pipeline) {
   startTime = Date.now();
 
   for (let i = START_INDEX; i < START_INDEX + TOTAL_FEATURES; i += 1) {
-    const isContextual = i >= SIMPLE_FEATURES;
+    const isContextual = i - START_INDEX >= SIMPLE_FEATURES;
 
     try {
       const { featureId, stageId } = await createFeature(token, team, pipeline, i, isContextual);
@@ -404,7 +437,7 @@ async function createFeatures(token, team, pipeline) {
       createdFeaturesCount += 1;
 
       if (stageId) {
-        await deployFeatureStage(token, stageId);
+        await deployFeatureStage(token, approverToken, stageId);
       }
 
       if (createdFeaturesCount % Math.max(1, BATCH_SIZE * 10) === 0) {
@@ -438,9 +471,10 @@ async function main() {
     await createContexts(token, team);
     const environment = await createEnvironment(token, team);
     await ensureApprovalPolicy(token, team.id);
+    const approverToken = await ensureApprover(token, team.id);
     const pipeline = await createPipeline(token, team, environment);
 
-    await createFeatures(token, team, pipeline);
+    await createFeatures(token, approverToken, team, pipeline);
 
     console.log('');
     console.log(`${colors.bright}${colors.green}✓ Performance test data created successfully!${colors.reset}`);

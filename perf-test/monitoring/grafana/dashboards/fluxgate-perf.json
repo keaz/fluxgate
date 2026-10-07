@@ -93,7 +93,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max_over_time(sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[10s]))[$__range:2s])",
+          "expr": "max_over_time(sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[15s]))[$__range:2s])",
           "legendFormat": "",
           "instant": true,
           "range": false
@@ -458,7 +458,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[15s]))",
           "legendFormat": "achieved RPS",
           "range": true
         },
@@ -468,7 +468,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\",expected_response=\"false\"}[$__rate_interval]))",
+          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\",expected_response=\"false\"}[15s]))",
           "legendFormat": "failed RPS",
           "range": true
         },
@@ -478,7 +478,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_dropped_iterations_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "expr": "sum(rate(k6_dropped_iterations_total{testid=~\"$testid\"}[15s]))",
           "legendFormat": "dropped RPS",
           "range": true
         }
@@ -533,7 +533,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "p50",
           "range": true
         },
@@ -543,7 +543,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.9, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.9, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "p90",
           "range": true
         },
@@ -553,7 +553,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "p95",
           "range": true
         },
@@ -563,7 +563,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "p99",
           "range": true
         },
@@ -573,7 +573,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.999, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.999, sum(rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "p99.9",
           "range": true
         }
@@ -628,7 +628,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (scenario) (rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (scenario) (rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[15s])))",
           "legendFormat": "{{scenario}}",
           "range": true
         }
@@ -819,6 +819,7 @@
         "defaults": {
           "unit": "percentunit",
           "min": 0,
+          "max": 1,
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 8,

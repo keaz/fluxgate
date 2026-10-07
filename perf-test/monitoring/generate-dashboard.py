@@ -23,11 +23,11 @@ def row(title):
                    "gridPos": {"h": 1, "w": 24, "x": 0, "y": y}, "panels": []})
     y += 1
 
-def ts(title, targets, unit, x, w, desc="", overrides=None, h=8, stack=False):
+def ts(title, targets, unit, x, w, desc="", overrides=None, h=8, stack=False, max_value=None):
     panels.append({
         "type": "timeseries", "title": title, "description": desc, "id": nid(), "datasource": DS,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "fieldConfig": {"defaults": {"unit": unit, "min": 0,
+        "fieldConfig": {"defaults": {"unit": unit, "min": 0, **({"max": max_value} if max_value is not None else {}),
                                       "custom": {"lineWidth": 2, "fillOpacity": 8, "showPoints": "never",
                                                  "spanNulls": False}},
                         "overrides": overrides or []},
@@ -53,11 +53,16 @@ dashed = lambda match: {"matcher": {"id": "byRegexp", "options": match},
 red = lambda name: {"matcher": {"id": "byName", "options": name},
                     "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
 
-def q(p, w="$__rate_interval"):
+# k6 pushes every few seconds and each load step is a new series, so k6 queries
+# use a fixed window that always holds at least two pushes.
+K6_WINDOW = "15s"
+
+
+def q(p, w=K6_WINDOW):
     return f'histogram_quantile({p}, sum(rate(k6_http_req_duration_seconds{{{T}}}[{w}])))'
 
 # Summary
-stat("Peak RPS", f'max_over_time(sum(rate(k6_http_reqs_total{{{T}}}[10s]))[$__range:2s])', "reqps", 0, 4)
+stat("Peak RPS", f'max_over_time(sum(rate(k6_http_reqs_total{{{T}}}[{K6_WINDOW}]))[$__range:2s])', "reqps", 0, 4)
 stat("Requests", f'sum(increase(k6_http_reqs_total{{{T}}}[$__range]))', "short", 4, 4)
 stat("p99 (whole range)", f'histogram_quantile(0.99, sum(increase(k6_http_req_duration_seconds{{{T}}}[$__range])))', "s", 8, 4,
      desc="Includes every step in range, also the failing ones. The breakpoint JSON has per-step values.")
@@ -69,16 +74,16 @@ y += 4
 
 row("Load and latency (k6)")
 ts("Throughput", [
-    (f'sum(rate(k6_http_reqs_total{{{T}}}[$__rate_interval]))', "achieved RPS"),
-    (f'sum(rate(k6_http_reqs_total{{{T},expected_response="false"}}[$__rate_interval]))', "failed RPS"),
-    (f'sum(rate(k6_dropped_iterations_total{{{T}}}[$__rate_interval]))', "dropped RPS"),
+    (f'sum(rate(k6_http_reqs_total{{{T}}}[{K6_WINDOW}]))', "achieved RPS"),
+    (f'sum(rate(k6_http_reqs_total{{{T},expected_response="false"}}[{K6_WINDOW}]))', "failed RPS"),
+    (f'sum(rate(k6_dropped_iterations_total{{{T}}}[{K6_WINDOW}]))', "dropped RPS"),
 ], "reqps", 0, 12, desc="Dropped = requests k6 could not start because all VUs were busy; the edge is saturated.",
    overrides=[red("failed RPS"), red("dropped RPS")])
 ts("Latency percentiles", [(q(p), l) for p, l in
                            [(0.5, "p50"), (0.9, "p90"), (0.95, "p95"), (0.99, "p99"), (0.999, "p99.9")]],
    "s", 12, 12, desc="From k6 native histograms, per scrape window.")
 y += 8
-ts("Latency p99 by step", [(f'histogram_quantile(0.99, sum by (scenario) (rate(k6_http_req_duration_seconds{{{T}}}[$__rate_interval])))', "{{scenario}}")],
+ts("Latency p99 by step", [(f'histogram_quantile(0.99, sum by (scenario) (rate(k6_http_req_duration_seconds{{{T}}}[{K6_WINDOW}])))', "{{scenario}}")],
    "s", 0, 12)
 ts("Virtual users and errors", [
     (f'sum(k6_vus{{{T}}})', "active VUs"),
@@ -94,7 +99,7 @@ ts("CPU cores", [
 ts("CPU throttled periods", [
     ('sum by (service) (rate(container_cpu_cfs_throttled_periods_total{service!=""}[$__rate_interval])) / '
      'sum by (service) (rate(container_cpu_cfs_periods_total{service!=""}[$__rate_interval]))', "{{service}}"),
-], "percentunit", 8, 8, desc="Share of CFS periods in which the container hit its CPU limit.")
+], "percentunit", 8, 8, desc="Share of CFS periods in which the container hit its CPU limit.", max_value=1)
 ts("Memory working set", [
     ('max by (service) (container_memory_working_set_bytes{service!=""})', "{{service}}"),
     ('max by (service) (container_spec_memory_limit_bytes{service!=""} > 0)', "{{service}} limit"),

@@ -97,7 +97,8 @@ async function createAdminIfNeeded() {
     const admin = await apiJson('/admins', { method: 'POST', body: input });
     logSuccess(`Created admin: ${admin.username}`);
   } catch (error) {
-    if (error.status === 409) {
+    // 403: the first admin exists, so the open bootstrap endpoint is closed
+    if (error.status === 409 || error.status === 403) {
       logStep('Admin already exists, continuing...');
       return;
     }
@@ -144,7 +145,31 @@ async function createPerfTeam(token) {
   return created;
 }
 
-async function createEdgeClient(token, teamId) {
+// Same environment name as populate-data.js, so both scripts share it
+const ENVIRONMENT_NAME = 'Perf-Test-Prod';
+
+async function getOrCreateEnvironment(token, teamId) {
+  logStep('Creating/fetching performance test environment...');
+
+  const query = new URLSearchParams({ name: ENVIRONMENT_NAME, offset: '0', limit: '1' }).toString();
+  const envsData = await apiJson(`/teams/${teamId}/environments?${query}`, { token });
+  if (envsData.items.length > 0) {
+    const existingEnv = envsData.items[0];
+    logSuccess(`Using existing environment: ${existingEnv.name} (ID: ${existingEnv.id})`);
+    return existingEnv;
+  }
+
+  const created = await apiJson(`/teams/${teamId}/environments`, {
+    method: 'POST',
+    token,
+    body: { name: ENVIRONMENT_NAME, active: true, environmentType: 'Production' },
+  });
+  logSuccess(`Created environment: ${created.name} (ID: ${created.id})`);
+  return created;
+}
+
+// Clients belong to one environment; the edge server serves that environment's flags
+async function createEdgeClient(token, teamId, environmentId) {
   logStep('Creating edge server client...');
 
   const client = await apiJson(`/teams/${teamId}/clients`, {
@@ -156,6 +181,7 @@ async function createEdgeClient(token, teamId) {
       enabled: true,
       clientType: 'BACKEND',
       webOrigins: [],
+      environmentId,
     },
   });
 
@@ -191,11 +217,13 @@ async function main() {
     await createAdminIfNeeded();
     const token = await loginAsAdmin();
     const team = await createPerfTeam(token);
-    const client = await createEdgeClient(token, team.id);
+    const environment = await getOrCreateEnvironment(token, team.id);
+    const client = await createEdgeClient(token, team.id, environment.id);
     await updateEdgeConfig(client.id, client.apiKey);
 
     console.log('');
     logSuccess('Edge client initialization complete!');
+    console.log(`${colors.blue}Environment ID:${colors.reset} ${environment.id}`);
     console.log(`${colors.blue}Client ID:${colors.reset} ${client.id}`);
     console.log(`${colors.blue}Client Secret:${colors.reset} ${client.apiKey}`);
     console.log('');

@@ -58,6 +58,7 @@ BP_STEP_RPS="${BP_STEP_RPS:-100}"
 BP_MAX_RPS="${BP_MAX_RPS:-5000}"
 BP_STEP_DURATION="${BP_STEP_DURATION:-60s}"
 SLO_P99_MS="${SLO_P99_MS:-50}"
+K6_MAX_VUS="${K6_MAX_VUS:-500}"
 
 # Steady-state test: STEADY_RPS, or STEADY_FRACTION of the max sustainable RPS
 STEADY_RPS="${STEADY_RPS:-}"
@@ -125,6 +126,7 @@ while [[ $# -gt 0 ]]; do
       echo "  BACKEND_URL       (optional) Backend URL (default: http://localhost:8080)"
       echo "  BP_START_RPS, BP_STEP_RPS, BP_MAX_RPS, BP_STEP_DURATION  Breakpoint steps (default: 100, 100, 5000, 60s)"
       echo "  SLO_P99_MS        p99 latency SLO per step (default: 50)"
+      echo "  <NAME>_<profile>  Per-profile override of BP_* and K6_MAX_VUS, e.g. BP_STEP_RPS_xlarge=1000"
       echo "  STEADY_FRACTION, STEADY_DURATION  Steady-state load and length (default: 0.7, 10m)"
       echo ""
       echo "Example:"
@@ -439,8 +441,9 @@ run_k6() {
   K6_WEB_DASHBOARD_EXPORT="${out_dir}/${test_name}-report.html" \
   K6_WEB_DASHBOARD_PORT=-1 \
   K6_PROMETHEUS_RW_SERVER_URL="${PROMETHEUS_URL}/api/v1/write" \
+  K6_PROMETHEUS_RW_PUSH_INTERVAL=2s \
   K6_FEATURES=native-histograms \
-  k6 run \
+  k6 run --quiet \
     "${outputs[@]}" \
     --tag testid="$testid" \
     -e EDGE_URL="$EDGE_URL" \
@@ -463,19 +466,35 @@ run_k6() {
   fi
 }
 
+# Value of a setting for one profile: <NAME>_<profile> when set, else <NAME>.
+# Example: BP_STEP_RPS_xlarge=1000 BP_MAX_RPS_xlarge=40000
+profile_setting() {
+  local name=$1
+  local profile=$2
+  local override="${name}_${profile}"
+  echo "${!override:-${!name}}"
+}
+
 # Step the load up until the edge breaks the SLO
 run_breakpoint_test() {
   local profile=$1
   local round_dir=$2
   local feature_count=$3
 
-  print_msg "$BLUE" "Running breakpoint test with ${feature_count} features (${BP_START_RPS} to ${BP_MAX_RPS} RPS by ${BP_STEP_RPS}, ${BP_STEP_DURATION} per step)..."
+  local start_rps step_rps max_rps step_duration
+  start_rps=$(profile_setting BP_START_RPS "$profile")
+  step_rps=$(profile_setting BP_STEP_RPS "$profile")
+  max_rps=$(profile_setting BP_MAX_RPS "$profile")
+  step_duration=$(profile_setting BP_STEP_DURATION "$profile")
+
+  print_msg "$BLUE" "Running breakpoint test with ${feature_count} features (${start_rps} to ${max_rps} RPS by ${step_rps}, ${step_duration} per step)..."
 
   run_k6 "$round_dir" "breakpoint" "${profile}-${feature_count}f-breakpoint" "$feature_count" \
-    -e START_RPS="$BP_START_RPS" \
-    -e STEP_RPS="$BP_STEP_RPS" \
-    -e MAX_RPS="$BP_MAX_RPS" \
-    -e STEP_DURATION="$BP_STEP_DURATION"
+    -e START_RPS="$start_rps" \
+    -e STEP_RPS="$step_rps" \
+    -e MAX_RPS="$max_rps" \
+    -e STEP_DURATION="$step_duration" \
+    -e MAX_VUS="$(profile_setting K6_MAX_VUS "$profile")"
 
   local max_rps
   max_rps=$(jq -r '.maxSustainableRps // "none"' "${round_dir}/breakpoint.json" 2>/dev/null || echo "none")
@@ -500,13 +519,20 @@ run_steady_test() {
     return
   fi
 
+  # Start from a fresh edge: its memory grows with the users and flags it has
+  # seen, so a steady run right after the breakpoint run would inherit that.
+  print_msg "$BLUE" "Restarting edge for a clean steady-state run..."
+  docker-compose $(compose_files "$profile") restart edge > /dev/null
+  sleep 15
+
   print_msg "$BLUE" "Running steady-state test @ ${rps} RPS for ${STEADY_DURATION} with ${feature_count} features..."
 
   run_k6 "$round_dir" "steady" "${profile}-${feature_count}f-steady" "$feature_count" \
     -e START_RPS="$rps" \
     -e STEP_RPS=0 \
     -e MAX_RPS="$rps" \
-    -e STEP_DURATION="$STEADY_DURATION"
+    -e STEP_DURATION="$STEADY_DURATION" \
+    -e MAX_VUS="$(profile_setting K6_MAX_VUS "$profile")"
 
   print_success "Steady-state test @ ${rps} RPS completed"
 }
@@ -658,7 +684,7 @@ generate_report() {
 
   local report_file="${RESULTS_DIR}/SUMMARY.md"
   local edge_image
-  edge_image=$(grep -E "image: .*flux-gate-edge" docker-compose.base.yml | awk '{print $2}')
+  edge_image=$(docker-compose -f docker-compose.base.yml config --images 2>/dev/null | grep flux-gate-edge)
 
   cat > "$report_file" << EOF
 # FluxGate Performance Test Results
@@ -682,7 +708,7 @@ generate_report() {
 - **Steady state**: ${STEADY_RPS:-${STEADY_FRACTION} x max sustainable RPS} for ${STEADY_DURATION}
 - **Quick mode**: $QUICK_MODE
 
-Max sustainable RPS is the highest step where every step up to it met the SLO.
+Max sustainable RPS is the step before the first SLO miss that repeats in the next step (or ends the run).
 Latency and resource columns come from the steady-state run.
 
 ## Results

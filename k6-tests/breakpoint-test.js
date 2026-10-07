@@ -16,9 +16,12 @@ import { Rate } from 'k6/metrics';
 //   error rate   <= SLO_ERROR_RATE   (non-200 or an errorCode in the response)
 //   dropped iterations <= SLO_DROPPED_RATIO of the planned requests
 //
-// The breakpoint (max sustainable RPS) is the last step before the first
-// failing step. The run stops early once the edge is saturated, i.e. when a
-// step exceeds ABORT_P99_MS, ABORT_ERROR_RATE or ABORT_DROPPED_RATIO.
+// The breakpoint is the first step that fails together with the step after it
+// (or that ends the run); the max sustainable RPS is the step before it. A
+// single failing step followed by passing steps is a short stall on the host,
+// not the limit: it is counted in isolatedSloMisses and firstSloMissRps.
+// The run stops early once the edge is saturated, i.e. when a step exceeds
+// ABORT_P99_MS, ABORT_ERROR_RATE or ABORT_DROPPED_RATIO.
 //
 // Steady-state test: set START_RPS and MAX_RPS to the same value and
 // STEP_DURATION to the hold time, e.g. START_RPS=700 MAX_RPS=700 STEP_DURATION=10m.
@@ -307,6 +310,7 @@ function markdownReport(result) {
         '',
         `- Max sustainable RPS: **${result.maxSustainableRps ?? 'none (first step failed)'}**`,
         `- Breaking step: ${breaking}`,
+        `- Single missed steps below it: ${result.isolatedSloMisses}`,
         `- Peak achieved RPS: ${result.peakAchievedRps}`,
         `- SLO: p99 <= ${SLO.p99Ms}ms, errors <= ${SLO.errorRate * 100}%, dropped <= ${SLO.droppedRatio * 100}%`,
         `- Steps: ${START_RPS} to ${MAX_RPS} RPS by ${STEP_RPS}, ${STEP_SECS}s each, ${WARMUP_SECS}s warm-up`,
@@ -330,7 +334,13 @@ export function handleSummary(data) {
 
     const steps = STEP_RATES.map((rate, index) => stepResult(data, rate, index, lastStepWithData, startedAtMs));
     const firstFailure = steps.findIndex((step) => !step.passed);
-    const maxSustainable = firstFailure === -1 ? steps[steps.length - 1] : steps[firstFailure - 1];
+    const breakingIndex = steps.findIndex(
+        (step, i) => !step.passed && (i === steps.length - 1 || !steps[i + 1].passed),
+    );
+    const maxSustainable = breakingIndex === -1 ? steps[steps.length - 1] : steps[breakingIndex - 1];
+    const isolatedSloMisses = steps
+        .slice(0, breakingIndex === -1 ? steps.length : breakingIndex)
+        .filter((step) => !step.passed).length;
 
     const result = {
         meta: {
@@ -353,7 +363,9 @@ export function handleSummary(data) {
             generatedAt: new Date().toISOString(),
         },
         maxSustainableRps: maxSustainable ? maxSustainable.targetRps : null,
-        breakingStep: firstFailure === -1 ? null : steps[firstFailure],
+        breakingStep: breakingIndex === -1 ? null : steps[breakingIndex],
+        firstSloMissRps: firstFailure === -1 ? null : steps[firstFailure].targetRps,
+        isolatedSloMisses,
         peakAchievedRps: Math.max(0, ...steps.map((step) => step.achievedRps || 0)),
         steps: steps.filter((step) => step.requests > 0),
     };
