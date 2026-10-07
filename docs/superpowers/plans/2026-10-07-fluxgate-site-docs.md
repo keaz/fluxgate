@@ -4156,7 +4156,7 @@ The page header (title, takeaway, video length, "Builds on" links) and the video
 
 ## Components
 
-```mdx
+~~~mdx
 <Steps>
 
 1. Click **Contexts** under **Build**.
@@ -4181,7 +4181,7 @@ await client.getStringValue(...)
 </CodeTabs>
 
 Sign in as `priya` <RoleBadge role="requester" />. Roles: admin, team-admin, requester, approver.
-```
+~~~
 
 Code fences take an optional title: ```` ```bash title="Start the edge server" ````. Every fence needs a language (`bash`, `json`, `js`, `yaml`, `toml`, `text`, `http`).
 
