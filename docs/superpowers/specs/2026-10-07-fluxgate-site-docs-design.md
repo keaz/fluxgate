@@ -68,7 +68,7 @@ About 25 docs pages and 4 product pages.
 One task-oriented runbook:
 
 1. Prerequisites (Docker with Compose; `curl` and `jq` for the checks; Node 20+ only for the sample app).
-2. Download `docker-compose.yml` and `config.toml` from the site (`/downloads/docker-compose.yml`, `/downloads/config.toml`, served from `public/downloads/`). They are copies of `docs/demo-videos/assets/docker-compose.demo.yml` and `config.demo.toml`, which live in a different repository. `scripts/sync-downloads.mjs` copies them when run locally from the monorepo checkout; CI does not see the sources, so the copies are committed.
+2. Download `docker-compose.demo.yml` and `config.demo.toml` from the site (`/downloads/docker-compose.demo.yml`, `/downloads/config.demo.toml`, served from `public/downloads/`). The names match the videos. They are copies of `docs/demo-videos/assets/docker-compose.demo.yml` and `config.demo.toml`, which live in a different repository. `scripts/sync-downloads.mjs` copies them when run locally from the monorepo checkout; CI does not see the sources, so the copies are committed.
 3. Create `.env` with `FLUXGATE_ENCRYPTION_KEY` (with a warning never to change it while the database lives).
 4. `docker compose up -d`, then create the first admin.
 5. Create a client, add `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` to `.env`, start the edge server (`--profile edge`).
@@ -139,7 +139,7 @@ The current pattern stays: `App` renders by `path`, `entry-server.tsx` renders e
    - Docs routes come from `import.meta.glob('./content/docs/**/*.mdx')`. The path comes from the file location. Meta comes from frontmatter (`remark-frontmatter` + `remark-mdx-frontmatter`).
    - The build fails on a duplicate slug, a missing `title` or `description`, an unknown `chapter`, or a `prerequisites` entry that does not resolve.
 2. **Code splitting**: the server build imports all pages. The client loads only the module for the current route, then calls `hydrateRoot`.
-3. **MDX pipeline**: `@mdx-js/rollup`, `remark-gfm`, `rehype-slug`, `rehype-autolink-headings`, and `@shikijs/rehype` with a light and a dark theme switched by `.dark`. The table of contents (h2, h3) is extracted at build time.
+3. **MDX pipeline**: `@mdx-js/rollup`, `remark-gfm`, `rehype-slug`, `rehype-autolink-headings`, and `@shikijs/rehype` with one dark theme, because code blocks use the dark terminal style in both site themes. The table of contents (h2, h3) is extracted at build time.
 4. **Search**: Pagefind runs after prerender (`pagefind --site dist`) and indexes docs content only (`data-pagefind-body`). A search dialog opens on `⌘K` or `/`, like the admin UI command palette. The index loads on first open.
 5. **SEO**: `TechArticle` and `BreadcrumbList` JSON-LD per docs page, `VideoObject` JSON-LD when a YouTube ID exists. The sitemap is generated from the registry.
 6. **YouTube embed**: `src/content/videos.ts` maps video number to YouTube ID. The facade shows the thumbnail from `i.ytimg.com` and a play button. The `youtube-nocookie.com` iframe loads only after a click. Captions are on YouTube.
