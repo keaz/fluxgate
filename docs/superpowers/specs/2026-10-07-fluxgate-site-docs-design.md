@@ -68,7 +68,7 @@ About 25 docs pages and 4 product pages.
 One task-oriented runbook:
 
 1. Prerequisites (Docker with Compose; `curl` and `jq` for the checks; Node 20+ only for the sample app).
-2. Download `docker-compose.yml` and `config.toml` from the site (`/downloads/docker-compose.yml`, `/downloads/config.toml`, served from `public/downloads/`). They are copies of `docs/demo-videos/assets/docker-compose.demo.yml` and `config.demo.toml`; a build check fails if the copies drift from those sources.
+2. Download `docker-compose.yml` and `config.toml` from the site (`/downloads/docker-compose.yml`, `/downloads/config.toml`, served from `public/downloads/`). They are copies of `docs/demo-videos/assets/docker-compose.demo.yml` and `config.demo.toml`, which live in a different repository. `scripts/sync-downloads.mjs` copies them when run locally from the monorepo checkout; CI does not see the sources, so the copies are committed.
 3. Create `.env` with `FLUXGATE_ENCRYPTION_KEY` (with a warning never to change it while the database lives).
 4. `docker compose up -d`, then create the first admin.
 5. Create a client, add `EDGE_CLIENT_ID` and `EDGE_CLIENT_SECRET` to `.env`, start the edge server (`--profile edge`).
