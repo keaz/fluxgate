@@ -39,6 +39,7 @@ recording) and the metric toast quote style (docs wording only).
 | B15 | System Clients and SDK Setup links shown to users without the Team Admin role | UI | low | [keaz/feature-toggle-ui#15](https://github.com/keaz/feature-toggle-ui/issues/15) |
 | B16 | Pipelines list "Description" column shows the Active/Disabled status | UI | low | [keaz/feature-toggle-ui#16](https://github.com/keaz/feature-toggle-ui/issues/16) |
 | B17 | SDK Setup Wizard shows the raw error code `team_admin_role_required` | UI | low | [keaz/feature-toggle-ui#17](https://github.com/keaz/feature-toggle-ui/issues/17) |
+| B18 | A role assigned to the signed-in user has no effect until the next sign-in | UI | low | not filed |
 
 ## B01: Header team selector does not show a new team until the page is reloaded
 
@@ -416,6 +417,28 @@ Issue: [keaz/feature-toggle-ui#17](https://github.com/keaz/feature-toggle-ui/iss
 **Root cause:** The wizard stores `err.message` from `fetchSystemClients` and renders it as is (`src/pages/DeveloperSetupWizard.tsx:94-103`, `344-347`). The backend policy guard sends the policy reason code as `message` (`feature-toggle-backend/src/middleware/jwt_guard.rs:141-147`, reason from `logic/policy.rs:497`). The same request also adds a "Policy deny" row to Recent Activity each time priya opens the wizard.
 
 **Suggested fix:** Map 403 responses with `code: "policy_denied"` to readable text in the UI (a small reason-to-message table), and skip the system-client request for users who cannot manage system clients (see B15).
+
+## B18: A role assigned to the signed-in user has no effect until the next sign-in
+
+Issue: not filed
+
+- **Repo:** UI (`keaz/feature-toggle-ui`)
+- **Severity:** low
+- **Where seen:** developer guide end-to-end run (docs site, Task 14)
+
+**Steps to reproduce**
+
+1. Sign in as `admin` (system admin without the Requester role).
+2. Open Users, edit `admin`, go to **Assign Roles**, tick **Requester**, click **Assign Selected Roles**. The toast "Roles assigned successfully" appears.
+3. Open a feature, select a stage and open **Actions**.
+
+**Expected:** The new role applies at once, so **Actions** offers **Request Deployment**.
+
+**Actual:** **Actions** shows only the hint "Requester role required to make requests". The role works only after logging out and signing in again.
+
+**Root cause:** The UI reads roles from the decoded JWT in local storage (`src/utils/auth.ts:81-122`, `canRequestStageChange` calls `hasRole(ROLES.REQUESTER)`). Assigning roles does not refresh the token, and the hint text comes from `src/pages/FeatureCreate.tsx:2029`.
+
+**Suggested fix:** After a successful role or team assignment to the current user, refresh the token (or show a notice such as "Sign out and in again to apply your new role").
 
 ## Candidates not filed
 
