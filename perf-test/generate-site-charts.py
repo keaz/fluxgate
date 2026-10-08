@@ -33,7 +33,8 @@ import re
 from html import escape
 from pathlib import Path
 
-PROFILE_ORDER = ["minimal", "tiny", "small", "medium", "large", "xlarge"]
+# minimal-tuned: minimal limits with the edge assignment cache capped (follow-up run)
+PROFILE_ORDER = ["minimal", "minimal-tuned", "tiny", "small", "medium", "large", "xlarge"]
 
 THEMES = {
     "light": {
@@ -116,7 +117,13 @@ def load_results(results_dir):
             steady_file = round_dir / "steady-verify.json"
             if not steady_file.exists():
                 steady_file = round_dir / "steady.json"
+            # steady-sustained-<rps>.json; skip the -k6-summary.json files beside them
+            sustained = sorted((f for f in round_dir.glob("steady-sustained-*.json")
+                                if re.fullmatch(r"steady-sustained-\d+", f.stem)),
+                               key=lambda f: int(f.stem.rsplit("-", 1)[1]))
             rows.append({
+                "sustainedFiles": sustained,
+                "sustained": [json.loads(f.read_text()) for f in sustained],
                 "roundDir": round_dir,
                 "steadyFile": steady_file if steady_file.exists() else None,
                 "profile": profile_dir.name,
@@ -176,6 +183,32 @@ def bottleneck(row):
     return "edge-memory" if memory_bound else "harness"
 
 
+def sustained_attempts(row):
+    """Every 5-minute run of a configuration: the 70% run and any lower retries."""
+    runs = ([row["steady"]] if row["steady"] else []) + row["sustained"]
+    attempts = []
+    for run in runs:
+        if not run or not run["steps"]:
+            continue
+        step = run["steps"][0]
+        e = edge(step)
+        attempts.append({
+            "targetRps": step["targetRps"],
+            "achievedRps": step["achievedRps"],
+            "durationSecs": step.get("durationSecs"),
+            "passed": step["passed"],
+            "failures": step["failures"],
+            "latencyMs": step["latencyMs"],
+            "errorRate": step["errorRate"],
+            "dropped": step["dropped"],
+            "edgeCpuAvgCores": e.get("cpu_avg_cores"),
+            "edgeCpuMaxCores": e.get("cpu_max_cores"),
+            "edgeCpuThrottledRatio": e.get("cpu_throttled_ratio"),
+            "edgeMemoryMaxMiB": round(e["memory_max_bytes"] / 1048576, 1) if e.get("memory_max_bytes") else None,
+        })
+    return sorted(attempts, key=lambda a: a["targetRps"], reverse=True)
+
+
 def summarize(rows):
     out = []
     for row in rows:
@@ -194,6 +227,9 @@ def summarize(rows):
             "firstSloMissRps": bp["firstSloMissRps"],
             "isolatedSloMisses": bp["isolatedSloMisses"],
             "steadyPassed": steady_step["passed"] if steady_step else None,
+            "sustainedAttempts": sustained_attempts(row),
+            "verifiedSustainedRps": max(
+                (a["targetRps"] for a in sustained_attempts(row) if a["passed"]), default=None),
             "peakAchievedRps": bp["peakAchievedRps"],
             "limitedBy": bottleneck(row),
             "rpsPerCore": round(bp["maxSustainableRps"] / cpu_limit) if bp["maxSustainableRps"] and cpu_limit else None,
@@ -321,6 +357,8 @@ def profile_label(svg, x, profile, cpu, mem):
     svg.text(x, y1 + 26, profile, size=15, color=svg.t["text"], anchor="middle", weight=600)
     detail = f"{fmt_cpu(cpu)} · {mem} MiB" if mem else fmt_cpu(cpu)
     svg.text(x, y1 + 46, detail, size=13, anchor="middle")
+    if profile == "minimal-tuned":
+        svg.text(x, y1 + 64, "assignment cache 10k", size=13, anchor="middle")
 
 
 # ---------------------------------------------------------------------------
@@ -357,13 +395,31 @@ def chart_max_rps(summary, theme, feature_counts):
     by = {(r["profile"], r["features"]): r for r in summary}
     series = [(f, f"{f:,} flags", t["series"][i]) for i, f in enumerate(feature_counts)]
     peak = max((r["maxSustainableRps"] or 0) for r in summary)
-    notes = {p: "load generator limit" for p, _, _ in groups if any(by.get((p, f), {}).get("limitedBy") == "harness" for f in feature_counts)}
+    notes = {p: "limited by test host" for p, _, _ in groups if any(by.get((p, f), {}).get("limitedBy") == "harness" for f in feature_counts)}
     svg = Svg(theme, "Breakpoint: evaluations per second before the SLO breaks",
               "Last 20-second load step before p99 > 50 ms, errors or dropped requests persisted, by edge resource profile",
               "Bar chart of the breakpoint evaluation rate of the FluxGate edge server per resource profile")
     svg.legend([(label, color) for _, label, color in series])
     grouped_bars(svg, groups, series, lambda p, f: (by.get((p, f)) or {}).get("maxSustainableRps"),
                  nice_max(peak * 1.1), lambda v: fmt_num(v), label_series=feature_counts[-1], notes=notes)
+    return svg
+
+
+def chart_sustained(summary, theme, features):
+    """Verified 5-minute rate next to the 20-second breakpoint, per profile."""
+    t = THEMES[theme]
+    rows = {r["profile"]: r for r in summary if r["features"] == features}
+    groups = [g for g in profile_groups(summary) if g[0] in rows]
+    series = [("verifiedSustainedRps", "Sustained 5 minutes", t["series"][0]),
+              ("maxSustainableRps", "Breakpoint (20-second steps)", t["series"][1])]
+    peak = max((rows[p]["maxSustainableRps"] or 0) for p, _, _ in groups)
+    notes = {p: "none met the SLO" for p, _, _ in groups if rows[p]["verifiedSustainedRps"] is None}
+    svg = Svg(theme, "Evaluations per second the edge sustains",
+              f"Highest rate that met p99 ≤ 50 ms, < 1% errors and < 1% dropped for 5 minutes, next to the breakpoint; {features:,} flags",
+              "Grouped bar chart of the sustained and breakpoint evaluation rates per edge resource profile")
+    svg.legend([(label, color) for _, label, color in series])
+    grouped_bars(svg, groups, series, lambda p, k: rows[p][k], nice_max(peak * 1.1), lambda v: fmt_num(v),
+                 label_series="verifiedSustainedRps", notes=notes)
     return svg
 
 
@@ -657,6 +713,9 @@ def export_configurations(prometheus, rows, summary, out):
         if row["steadyFile"]:
             suffix = "-verify" if row["steadyFile"].name == "steady-verify.json" else ""
             runs.append(("steady", row["steadyFile"], f"{name}-steady{suffix}"))
+        for source in row["sustainedFiles"]:
+            rps = source.stem.rsplit("-", 1)[1]
+            runs.append((f"steady-{rps}", source, f"{name}-steady-{rps}"))
         for kind, source, testid in runs:
             shutil.copy(source, target / f"{kind}.json")
             if source.with_suffix(".md").exists():
@@ -694,13 +753,13 @@ LIMITED_BY_LABELS = {
     "edge-cpu": "edge CPU limit",
     "edge-memory": "edge memory limit",
     "edge-cpu-memory": "edge CPU and memory limits",
-    "harness": "load generator",
+    "harness": "test host (k6 / Docker networking)",
     "unknown": "-",
 }
 
 CSV_FIELDS = [
     "profile", "features", "edgeCpuLimitCores", "edgeMemoryLimitMiB", "maxSustainableRps", "breakingRps",
-    "limitedBy", "rpsPerCore", "firstSloMissRps", "isolatedSloMisses", "steadyRps", "steadyPassed", "p50Ms", "p95Ms", "p99Ms", "p999Ms", "steadyErrorRate",
+    "limitedBy", "rpsPerCore", "firstSloMissRps", "isolatedSloMisses", "verifiedSustainedRps", "steadyRps", "steadyPassed", "p50Ms", "p95Ms", "p99Ms", "p999Ms", "steadyErrorRate",
     "steadyEdgeCpuAvgCores", "steadyEdgeCpuThrottledRatio", "steadyEdgeMemoryMaxMiB",
 ]
 
@@ -720,15 +779,15 @@ def steady_verdict(r):
 
 def markdown(summary, meta):
     lines = [
-        "| Profile | Edge limits | Flags | Breakpoint RPS | Breakpoint limited by | 5-min steady RPS | Steady SLO | p50 ms | p95 ms | p99 ms | Edge CPU used | Edge memory |",
-        "|---|---|---:|---:|---|---:|---|---:|---:|---:|---:|---:|",
+        "| Profile | Edge limits | Flags | Breakpoint RPS | Breakpoint limited by | Sustained 5 min (verified) | 5-min run at 70% | Steady SLO | p50 ms | p95 ms | p99 ms | Edge CPU used | Edge memory |",
+        "|---|---|---:|---:|---|---:|---:|---|---:|---:|---:|---:|---:|",
     ]
     for r in summary:
         lat = r["steadyLatencyMs"] or {}
         limited = LIMITED_BY_LABELS[r["limitedBy"]]
         lines.append(
             f'| {r["profile"]} | {fmt_cpu(r["edgeCpuLimitCores"])}, {r["edgeMemoryLimitMiB"]} MiB | {r["features"]:,} | '
-            f'{r["maxSustainableRps"] or "none":,} | {limited} | {r["steadyRps"] or "-"} | {steady_verdict(r)} | {lat.get("p50", "-")} | '
+            f'{r["maxSustainableRps"] or "none":,} | {limited} | {r["verifiedSustainedRps"] or "-"} | {r["steadyRps"] or "-"} | {steady_verdict(r)} | {lat.get("p50", "-")} | '
             f'{lat.get("p95", "-")} | {lat.get("p99", "-")} | {r["steadyEdgeCpuAvgCores"] if r["steadyEdgeCpuAvgCores"] is not None else "-"} | '
             f'{r["steadyEdgeMemoryMaxMiB"] if r["steadyEdgeMemoryMaxMiB"] is not None else "-"} MiB |'
         )
@@ -770,6 +829,7 @@ def main():
     (out / "perf-summary.md").write_text(markdown(summary, meta))
 
     charts = {
+        "sustained-rps": lambda th: chart_sustained(summary, th, args.features),
         "max-rps": lambda th: chart_max_rps(summary, th, feature_counts),
         "breakpoint-p99": lambda th: chart_breakpoint(summary, th, args.features),
         "steady-latency": lambda th: chart_steady_latency(summary, th, args.features),
@@ -803,7 +863,8 @@ def main():
         "summaryTables": ["perf-summary.json", "perf-summary.csv", "perf-summary.md"],
         "configurations": [
             {k: r[k] for k in ("profile", "features", "edgeCpuLimitCores", "edgeMemoryLimitMiB", "maxSustainableRps",
-                               "limitedBy", "steadyRps", "steadyPassed", "steadyLatencyMs", "files")}
+                               "limitedBy", "verifiedSustainedRps", "steadyRps", "steadyPassed",
+                               "steadyLatencyMs", "sustainedAttempts", "files")}
             for r in summary
         ],
     }

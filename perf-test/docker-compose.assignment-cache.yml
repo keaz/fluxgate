@@ -1,0 +1,14 @@
+# FluxGate Performance Test - Edge sticky-assignment cache size
+#
+# Sets the edge's [cache] assignment_max_capacity (default 50,000 entries,
+# about 450-500 bytes each). A 64 MiB edge needs a smaller cache.
+#
+# Usage (add after the profile file):
+#   EDGE_ASSIGNMENT_MAX_CAPACITY=10000 docker-compose -f docker-compose.base.yml \
+#     -f docker-compose.cgroups.yml -f docker-compose.minimal.yml \
+#     -f docker-compose.assignment-cache.yml up -d
+
+services:
+  edge:
+    environment:
+      EDGE_CACHE__ASSIGNMENT_MAX_CAPACITY: ${EDGE_ASSIGNMENT_MAX_CAPACITY:-50000}

@@ -84,6 +84,20 @@ node evaluate-features.js --features=1000 --evals=2
 
 The xlarge profile limits the edge to 8 CPUs; Docker refuses to start it when the Docker Desktop VM has fewer.
 
+To test an unreleased edge build, build it from the feature-toggle repo and pass it with `EDGE_IMAGE`:
+
+```bash
+(cd ../feature-toggle && git archive <commit> | docker build -t fluxgate-edge-local:<commit> -f feature-edge-server/Dockerfile -)
+EDGE_IMAGE=fluxgate-edge-local:<commit> ./run-perf-tests.sh --profiles "tiny"
+```
+
+A 64 MiB edge (minimal) needs a smaller sticky-assignment cache than the default 50,000 entries. `docker-compose.assignment-cache.yml` sets it from `EDGE_ASSIGNMENT_MAX_CAPACITY`:
+
+```bash
+EDGE_ASSIGNMENT_MAX_CAPACITY=10000 docker-compose -f docker-compose.base.yml -f docker-compose.cgroups.yml \
+  -f docker-compose.minimal.yml -f docker-compose.assignment-cache.yml up -d
+```
+
 ### 6. Build Charts for the Site
 ```bash
 ./generate-site-charts.py results/perf-results-<timestamp> --prometheus http://localhost:9095
