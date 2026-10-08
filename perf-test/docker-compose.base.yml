@@ -5,8 +5,8 @@
 # Host ports can be changed with DB_PORT, BACKEND_HTTP_PORT, BACKEND_GRPC_PORT,
 # BACKEND_CLUSTER_PORT, BACKEND_METRICS_PORT, EDGE_HTTP_PORT and EDGE_METRICS_PORT
 # to run next to another FluxGate stack.
-
-version: "3.8"
+#
+# EDGE_IMAGE replaces the edge image, e.g. a local build of an unreleased fix.
 
 services:
   # PostgreSQL Database
@@ -74,7 +74,7 @@ services:
   # FluxGate Edge Server
   # Resource limits defined in profile-specific compose files
   edge:
-    image: keaz/flux-gate-edge:${FLUXGATE_VERSION:-v1.2.0}
+    image: ${EDGE_IMAGE:-keaz/flux-gate-edge:${FLUXGATE_VERSION:-v1.2.0}}
     container_name: fluxgate-perf-edge
     restart: unless-stopped
     depends_on:

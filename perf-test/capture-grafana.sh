@@ -4,6 +4,11 @@
 #
 # Usage:
 #   ./capture-grafana.sh <result.json> <testid> <output-prefix>
+#   ./capture-grafana.sh --all <results-dir> [<output-dir>]
+#
+# --all captures the breakpoint and steady-state run of every profile and
+# feature count to <output-dir> (default <results-dir>/site/grafana) as
+# <profile>-<features>f-{breakpoint,steady}-{light,dark}.png.
 #
 # Example:
 #   ./capture-grafana.sh results/perf-results-X/small/round3-1000f/breakpoint.json \
@@ -14,6 +19,23 @@
 # Needs Google Chrome and the monitoring stack (docker-compose.monitoring.yml).
 
 set -euo pipefail
+
+if [ "${1:-}" = "--all" ]; then
+  results_dir=$2
+  out_dir=${3:-$results_dir/site/grafana}
+  for round_dir in "$results_dir"/*/round*-*f; do
+    profile=$(basename "$(dirname "$round_dir")")
+    features=$(basename "$round_dir" | sed -E 's/round[0-9]+-([0-9]+)f/\1/')
+    name="${profile}-${features}f"
+    [ -f "$round_dir/breakpoint.json" ] && "$0" "$round_dir/breakpoint.json" "${name}-breakpoint" "$out_dir/${name}-breakpoint"
+    if [ -f "$round_dir/steady-verify.json" ]; then
+      "$0" "$round_dir/steady-verify.json" "${name}-steady-verify" "$out_dir/${name}-steady"
+    elif [ -f "$round_dir/steady.json" ]; then
+      "$0" "$round_dir/steady.json" "${name}-steady" "$out_dir/${name}-steady"
+    fi
+  done
+  exit 0
+fi
 
 RESULT_JSON=$1
 TESTID=$2

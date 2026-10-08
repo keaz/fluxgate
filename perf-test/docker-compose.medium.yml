@@ -1,8 +1,6 @@
 # FluxGate Performance Test - Medium Profile
-# CPU: 1.0 cores (1000m), Memory: 512Mi
+# Edge limits: 2 CPU, 512 MiB (reservations: 1 CPU, 256 MiB)
 # Usage: docker-compose -f docker-compose.base.yml -f docker-compose.medium.yml up
-
-version: '3.8'
 
 services:
   edge:

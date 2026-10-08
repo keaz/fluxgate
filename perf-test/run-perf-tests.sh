@@ -678,13 +678,70 @@ run_tests_for_profile() {
   fi
 }
 
+# Record what was tested: images, host, tools and test settings
+write_environment() {
+  local compose_json
+  compose_json=$(docker-compose -f docker-compose.base.yml config --format json 2>/dev/null)
+  local images=()
+  local service image
+  for service in edge backend postgres; do
+    image=$(jq -r --arg s "$service" '.services[$s].image' <<< "$compose_json")
+    images+=("$(jq -n --arg service "$service" --arg image "$image" \
+      --arg id "$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)" \
+      --arg created "$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null)" \
+      '{service: $service, image: $image, id: $id, created: $created}')")
+  done
+
+  local profiles_json="[]"
+  local profile
+  for profile in "${PROFILES[@]}"; do
+    profiles_json=$(jq --arg p "$profile" \
+      --arg start "$(profile_setting BP_START_RPS "$profile")" \
+      --arg step "$(profile_setting BP_STEP_RPS "$profile")" \
+      --arg max "$(profile_setting BP_MAX_RPS "$profile")" \
+      --arg dur "$(profile_setting BP_STEP_DURATION "$profile")" \
+      --arg vus "$(profile_setting K6_MAX_VUS "$profile")" \
+      --argjson limits "$(docker-compose -f docker-compose.base.yml -f "docker-compose.${profile}.yml" config --format json 2>/dev/null | jq '.services.edge.deploy.resources')" \
+      '. + [{profile: $p, edgeResources: $limits, breakpoint: {startRps: ($start | tonumber), stepRps: ($step | tonumber), maxRps: ($max | tonumber), stepDuration: $dur}, k6MaxVus: ($vus | tonumber)}]' \
+      <<< "$profiles_json")
+  done
+
+  jq -n \
+    --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson images "$(printf '%s\n' "${images[@]}" | jq -s .)" \
+    --arg docker "$(docker version --format '{{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})' 2>/dev/null)" \
+    --arg dockerHost "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null)" \
+    --arg dockerCpus "$(docker info --format '{{.NCPU}}' 2>/dev/null)" \
+    --arg dockerMemory "$(docker info --format '{{.MemTotal}}' 2>/dev/null)" \
+    --arg hostCpu "$(sysctl -n machdep.cpu.brand_string 2>/dev/null || grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2)" \
+    --arg hostOs "$(uname -srm)" \
+    --arg k6 "$(k6 version --quiet 2>/dev/null | head -1)" \
+    --arg edgeConfig "$(grep -vE '^(client_id|client_secret)' config/edge-config.toml)" \
+    --argjson features "$(printf '%s\n' "${FEATURE_ROUNDS[@]}" | jq -s .)" \
+    --argjson profiles "$profiles_json" \
+    --arg sloP99 "$SLO_P99_MS" --arg steadyFraction "$STEADY_FRACTION" --arg steadyDuration "$STEADY_DURATION" \
+    '{
+      date: $date,
+      images: $images,
+      docker: {version: $docker, host: $dockerHost, cpus: ($dockerCpus | tonumber), memoryBytes: ($dockerMemory | tonumber)},
+      host: {cpu: ($hostCpu | gsub("^ +"; "")), os: $hostOs},
+      loadGenerator: $k6,
+      edgeConfig: $edgeConfig,
+      featureCounts: $features,
+      profiles: $profiles,
+      slo: {p99Ms: ($sloP99 | tonumber), errorRate: 0.01, droppedRatio: 0.01},
+      steadyState: {fractionOfBreakpoint: ($steadyFraction | tonumber), duration: $steadyDuration}
+    }' > "${RESULTS_DIR}/environment.json"
+  print_success "Environment recorded: ${RESULTS_DIR}/environment.json"
+}
+
 # Generate summary report
 generate_report() {
   print_header "Generating Summary Report"
 
   local report_file="${RESULTS_DIR}/SUMMARY.md"
   local edge_image
-  edge_image=$(docker-compose -f docker-compose.base.yml config --images 2>/dev/null | grep flux-gate-edge)
+  edge_image=$(docker-compose -f docker-compose.base.yml config --format json 2>/dev/null | jq -r '.services.edge.image')
 
   cat > "$report_file" << EOF
 # FluxGate Performance Test Results
@@ -811,6 +868,8 @@ main() {
   print_success "Results directory created: $RESULTS_DIR"
 
   # Save test configuration
+  write_environment
+
   cat > "${RESULTS_DIR}/test-config.txt" << EOF
 Test Date: $(date)
 Environment ID: $ENVIRONMENT_ID

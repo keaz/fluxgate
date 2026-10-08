@@ -1,8 +1,6 @@
 # FluxGate Performance Test - Minimal Profile
-# CPU: 0.1 cores (100m), Memory: 64Mi
+# Edge limits: 0.25 CPU, 64 MiB (reservations: 0.1 CPU, 32 MiB)
 # Usage: docker-compose -f docker-compose.base.yml -f docker-compose.minimal.yml up
-
-version: '3.8'
 
 services:
   edge:

@@ -117,6 +117,8 @@ def load_results(results_dir):
             if not steady_file.exists():
                 steady_file = round_dir / "steady.json"
             rows.append({
+                "roundDir": round_dir,
+                "steadyFile": steady_file if steady_file.exists() else None,
                 "profile": profile_dir.name,
                 "features": int(match.group(1)),
                 "breakpoint": apply_sustained_breakpoint(json.loads(bp_file.read_text())),
@@ -570,6 +572,113 @@ def fetch_memory_series(prometheus, summary, features):
             r["steadyEdgeMemorySeries"] = [[round(float(t_) - start), round(float(v), 1)] for t_, v in result[0]["values"]]
 
 
+# Series exported per test run: name -> PromQL (TESTID and SERVICE are filled in)
+K6_SERIES = {
+    "achievedRps": 'sum(rate(k6_http_reqs_total{testid="TESTID"}[15s]))',
+    "failedRps": 'sum(rate(k6_http_reqs_total{testid="TESTID",expected_response="false"}[15s]))',
+    "droppedRps": 'sum(rate(k6_dropped_iterations_total{testid="TESTID"}[15s]))',
+    "p50Ms": 'histogram_quantile(0.5, sum(rate(k6_http_req_duration_seconds{testid="TESTID"}[15s]))) * 1000',
+    "p95Ms": 'histogram_quantile(0.95, sum(rate(k6_http_req_duration_seconds{testid="TESTID"}[15s]))) * 1000',
+    "p99Ms": 'histogram_quantile(0.99, sum(rate(k6_http_req_duration_seconds{testid="TESTID"}[15s]))) * 1000',
+    "activeVus": 'sum(k6_vus{testid="TESTID"})',
+}
+CONTAINER_SERIES = {
+    "CpuCores": 'sum(rate(container_cpu_usage_seconds_total{service="SERVICE"}[10s]))',
+    "CpuThrottledRatio": 'sum(rate(container_cpu_cfs_throttled_periods_total{service="SERVICE"}[10s])) / '
+                         'sum(rate(container_cpu_cfs_periods_total{service="SERVICE"}[10s]))',
+    "MemoryMiB": 'max(container_memory_working_set_bytes{service="SERVICE"}) / 1048576',
+}
+POSTGRES_SERIES = {
+    "postgresCommitsPerSec": 'sum(rate(pg_stat_database_xact_commit{datname="feature_toggle"}[10s]))',
+    "postgresRowsInsertedPerSec": 'sum(rate(pg_stat_database_tup_inserted{datname="feature_toggle"}[10s]))',
+}
+SERIES_STEP_SECS = 5
+
+
+def prom_range(prometheus, expr, start, end, step=SERIES_STEP_SECS):
+    import urllib.parse
+    import urllib.request
+
+    query = urllib.parse.urlencode({"query": expr, "start": start, "end": end, "step": step})
+    with urllib.request.urlopen(f"{prometheus}/api/v1/query_range?{query}", timeout=30) as response:
+        result = json.load(response)["data"]["result"]
+    if not result:
+        return []
+    out = []
+    for t_, v in result[0]["values"]:
+        value = float(v)
+        out.append([round(float(t_) - start), None if value != value or math.isinf(value) else round(value, 4)])
+    return out
+
+
+def run_timeseries(prometheus, result, testid):
+    """Every series for one test run, from 10 s before its start to 10 s after its last step."""
+    from datetime import datetime, timezone
+
+    def ts(value):
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+    def iso(seconds):
+        return datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    start = ts(result["meta"]["startedAt"]) - 10
+    end = ts(result["steps"][-1]["endedAt"]) + 10
+    series = {name: prom_range(prometheus, expr.replace("TESTID", testid), start, end) for name, expr in K6_SERIES.items()}
+    for service in ("edge", "backend", "postgres"):
+        for suffix, expr in CONTAINER_SERIES.items():
+            if suffix == "CpuThrottledRatio" and service != "edge":
+                continue  # only the edge has a CPU limit
+            series[f"{service}{suffix}"] = prom_range(prometheus, expr.replace("SERVICE", service), start, end)
+    for name, expr in POSTGRES_SERIES.items():
+        series[name] = prom_range(prometheus, expr, start, end)
+    return {
+        "testid": testid,
+        "from": iso(start),
+        "to": iso(end),
+        "stepSeconds": SERIES_STEP_SECS,
+        "note": "Each point is [seconds since 'from', value]; null where Prometheus had no value. "
+                "Latency percentiles here come from k6 native histogram buckets and are approximate; "
+                "the step tables (breakpoint.json, steady.json) hold the exact per-step percentiles.",
+        "series": series,
+    }
+
+
+def export_configurations(prometheus, rows, summary, out):
+    """One folder per profile and flag count: results, step tables and time series."""
+    import shutil
+
+    by_key = {(r["profile"], r["features"]): r for r in summary}
+    for row in rows:
+        name = f'{row["profile"]}-{row["features"]}f'
+        target = out / "configurations" / name
+        target.mkdir(parents=True, exist_ok=True)
+        files = {}
+        runs = [("breakpoint", row["roundDir"] / "breakpoint.json", f"{name}-breakpoint")]
+        if row["steadyFile"]:
+            suffix = "-verify" if row["steadyFile"].name == "steady-verify.json" else ""
+            runs.append(("steady", row["steadyFile"], f"{name}-steady{suffix}"))
+        for kind, source, testid in runs:
+            shutil.copy(source, target / f"{kind}.json")
+            if source.with_suffix(".md").exists():
+                shutil.copy(source.with_suffix(".md"), target / f"{kind}.md")
+            files[kind] = f"configurations/{name}/{kind}.json"
+            files[f"{kind}Table"] = f"configurations/{name}/{kind}.md"
+            if prometheus:
+                result = json.loads(source.read_text())
+                (target / f"timeseries-{kind}.json").write_text(
+                    json.dumps(run_timeseries(prometheus, result, testid), indent=1) + "\n")
+                files[f"{kind}Timeseries"] = f"configurations/{name}/timeseries-{kind}.json"
+            grafana = out / "grafana" / f"{name}-{kind}-light.png"
+            if grafana.exists():
+                files[f"{kind}Grafana"] = {
+                    "light": f"grafana/{name}-{kind}-light.png",
+                    "dark": f"grafana/{name}-{kind}-dark.png",
+                }
+        entry = by_key[(row["profile"], row["features"])]
+        entry["files"] = files
+        (target / "summary.json").write_text(json.dumps(entry, indent=2) + "\n")
+
+
 def profile_groups(summary):
     seen = {}
     for r in summary:
@@ -631,7 +740,7 @@ def main():
     parser.add_argument("results", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--features", type=int, default=1000, help="feature count for the single-round charts")
-    parser.add_argument("--prometheus", help="Prometheus URL; adds edge memory over time for the steady runs")
+    parser.add_argument("--prometheus", help="Prometheus URL; adds time series per test run and the memory timeline chart")
     parser.add_argument("--note", default="FluxGate edge server · k6 · Docker Desktop", help="source line on each chart")
     args = parser.parse_args()
 
@@ -642,8 +751,10 @@ def main():
     if not rows:
         raise SystemExit(f"No breakpoint results under {args.results}")
     summary = summarize(rows)
-    if args.prometheus:
-        fetch_memory_series(args.prometheus.rstrip("/"), summary, args.features)
+    prometheus = args.prometheus.rstrip("/") if args.prometheus else None
+    if prometheus:
+        fetch_memory_series(prometheus, summary, args.features)
+    export_configurations(prometheus, rows, summary, out)
     feature_counts = sorted({r["features"] for r in summary})
 
     meta = {}
@@ -675,6 +786,28 @@ def main():
                 print(f"Skipped {name}: {error}")
                 break
             (out / "charts" / f"{name}-{theme}.svg").write_text(svg.render(args.note))
+
+    environment_file = args.results / "environment.json"
+    bundle = {
+        "generatedFrom": args.results.name,
+        "environment": json.loads(environment_file.read_text()) if environment_file.exists() else None,
+        "method": {
+            "endpoint": "POST /evaluate on the edge server",
+            "breakpoint": "Request rate rises in fixed steps; the breakpoint is the first SLO miss that repeats in "
+                          "the next step (or ends the run); maxSustainableRps is the step before it",
+            "steadyState": "A freshly restarted edge holds a fraction of its breakpoint for a fixed duration",
+            "slo": "Per step: p99 <= SLO, errors < 1%, dropped requests < 1%",
+            "limitedBy": {k: v for k, v in LIMITED_BY_LABELS.items() if k != "unknown"},
+        },
+        "charts": sorted(f"charts/{f.name}" for f in (out / "charts").glob("*.svg")),
+        "summaryTables": ["perf-summary.json", "perf-summary.csv", "perf-summary.md"],
+        "configurations": [
+            {k: r[k] for k in ("profile", "features", "edgeCpuLimitCores", "edgeMemoryLimitMiB", "maxSustainableRps",
+                               "limitedBy", "steadyRps", "steadyPassed", "steadyLatencyMs", "files")}
+            for r in summary
+        ],
+    }
+    (out / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n")
     print(f"Wrote {out}")
 
 

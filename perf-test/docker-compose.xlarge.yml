@@ -1,8 +1,6 @@
 # FluxGate Performance Test - XLarge Profile
-# CPU: 4.0 cores (4000m), Memory: 2048Mi
+# Edge limits: 8 CPU, 2048 MiB (reservations: 4 CPU, 1024 MiB)
 # Usage: docker-compose -f docker-compose.base.yml -f docker-compose.xlarge.yml up
-
-version: '3.8'
 
 services:
   edge:
